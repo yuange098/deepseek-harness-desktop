@@ -898,6 +898,8 @@ font-size:13px;line-height:1.75;color:var(--dsw-alias-label-primary);background:
 		function titleOf(item) {
 			const own = customTitle(titleKey(item));
 			if (own) return own;
+			// AI 判出来的功能名优先于本地规则（更像人话，也更贴这段代码真正干的事）
+			if (item && item.aiFeature) return item.aiFeature;
 			const code = String(item.code || "");
 			const lower = code.toLowerCase();
 			const name = String(item.name || item.title || "");
@@ -1001,6 +1003,11 @@ font-size:13px;line-height:1.75;color:var(--dsw-alias-label-primary);background:
 				setTitle(titleOf({ ...item }));
 				setEditing(false);
 			};
+			// AI 判出来的功能名是异步到的：没被用户改过标题时，跟着更新
+			react.useEffect(() => {
+				if (customTitle(titleKey(item))) return;
+				setTitle(titleOf(item));
+			}, [item.aiFeature, item.path, item.lines, item.title]);
 			// 点击代码区域不收起卡片，方便框选文字后 Ctrl+C / 右键复制
 			const keepOpen = (event) => event.stopPropagation();
 			return h("article", { className: "ch-tile", "data-open": open ? "1" : "0", onClick: () => setOpen(!open) },
@@ -1023,6 +1030,12 @@ font-size:13px;line-height:1.75;color:var(--dsw-alias-label-primary);background:
 						h("span", { title: "双击改标题", onDoubleClick: startEdit }, title),
 						h("button", { className: "ch-btn", onClick: startEdit, title: "改标题" }, "✎"),
 						item.isMain ? h("span", { className: "ch-main" }, "主文件") : null,
+						item.aiFeature
+							? h("span", {
+									className: "ch-tag" + (item.aiUsable === false ? " ch-tag-hi" : ""),
+									title: "AI 判定：" + (item.aiReason || "") + (item.aiUsable === false ? "（这段代码不单独成篇，默认折叠）" : "（可独立运行）"),
+								}, item.aiUsable === false ? "AI：片段" : "AI 判定")
+							: null,
 					),
 				h("div", { className: "ch-tile-meta" },
 					item.origin ? h("span", { className: "ch-origin" }, item.origin) : null,
@@ -1209,6 +1222,24 @@ font-size:13px;line-height:1.75;color:var(--dsw-alias-label-primary);background:
 			const [includeFragments, setIncludeFragments] = react.useState(false);
 			// 每个任务默认只摊开"完整代码"，过程文件收起来
 			const [openTasks, setOpenTasks] = react.useState(() => new Set());
+			// AI 判定：让模型判断"这段代码能不能独立完成一个功能"，结果按指纹缓存（主进程里缓存，重复看不再花钱）
+			const [aiVerdicts, setAiVerdicts] = react.useState({});
+			const [aiState, setAiState] = react.useState("idle"); // idle | running | off | fail
+			const [aiOn, setAiOn] = react.useState(true);
+			const aiKeyOf = (item) => String(item.path || `${item.title || ""}#${item.lines || 0}`);
+			/** 把 AI 判定贴到代码对象上：能不能独立成篇 + 中文功能名。 */
+			const decorate = (item) => {
+				const verdict = aiVerdicts[aiKeyOf(item)];
+				if (!verdict) return item;
+				return {
+					...item,
+					aiFeature: verdict.feature || "",
+					aiReason: verdict.reason || "",
+					aiUsable: verdict.usable,
+					complete: Boolean(verdict.usable),
+					reason: verdict.usable ? "AI 判定可独立运行" : `AI：${verdict.reason || "片段"}`,
+				};
+			};
 			useHideComposer();
 			react.useEffect(() => {
 				setBusy(true);
@@ -1236,12 +1267,13 @@ font-size:13px;line-height:1.75;color:var(--dsw-alias-label-primary);background:
 				.map((task) => ({
 					...task,
 					modules: task.modules
+						.map(decorate)
 						.filter(hit)
 						.filter(keepCode)
 						.sort((a, b) => (Number(b.complete) - Number(a.complete)) || (b.order - a.order)),
 				}))
 				.filter((task) => task.modules.length > 0);
-			const answers = data.answers.filter(hit).filter(keepCode);
+			const answers = data.answers.map(decorate).filter(hit).filter(keepCode);
 			/*
 			 * 任务意图过滤：文字类任务（写文章/润色/翻译/整理文档…）里出现的代码只是过程副产品，
 			 * 默认不展示；代码类任务（问代码、处理数据、绘图…）照常展示。
@@ -1262,6 +1294,45 @@ font-size:13px;line-height:1.75;color:var(--dsw-alias-label-primary);background:
 				+ answers.filter(isTextAnswer).length;
 			const count = tab === "executed" ? flat.length : shownAnswers.length;
 			// —— 文本模块：只列最终成品（同段反复改过的话，这里是最新一版）——
+			/*
+			 * 让 AI 判一遍：是不是"能独立完成一个功能"的代码。
+			 * 只判还没判过的（主进程里按代码指纹缓存，翻旧会话不会重复花钱）；
+			 * 一次最多 8 段，走 preload → 主进程 → 模型。
+			 */
+			react.useEffect(() => {
+				const api = window.dshDesktop;
+				if (!aiOn || busy || !api || typeof api.judgeCode !== "function") return;
+				if (data.total === 0 && (data.answers || []).length === 0) return;
+				const seen = new Set();
+				const candidates = [];
+				const push = (item) => {
+					if (!item || !item.code) return;
+					const id = aiKeyOf(item);
+					if (seen.has(id)) return;
+					seen.add(id);
+					candidates.push({ id, lang: item.lang, name: item.name || item.title || "", code: item.code });
+				};
+				for (const task of data.tasks) for (const item of task.modules.slice(0, 2)) push(item);
+				for (const item of (data.answers || []).slice(0, 3)) push(item);
+				const todo = candidates.filter((item) => !aiVerdicts[item.id]).slice(0, 8);
+				if (todo.length === 0) return;
+				let cancelled = false;
+				setAiState("running");
+				api
+					.judgeCode(todo)
+					.then((result) => {
+						if (cancelled) return;
+						if (result && result.results) setAiVerdicts((prev) => ({ ...prev, ...result.results }));
+						setAiState(result && result.ok ? "idle" : "fail");
+					})
+					.catch(() => {
+						if (!cancelled) setAiState("fail");
+					});
+				return () => {
+					cancelled = true;
+				};
+			}, [aiOn, busy, data, aiVerdicts]);
+
 			const texts = data.texts || [];
 			const shownTexts = texts.filter((item) => {
 				if (!query.trim()) return true;
@@ -1386,13 +1457,29 @@ font-size:13px;line-height:1.75;color:var(--dsw-alias-label-primary);background:
 								onClick: () => setIncludeText(!includeText),
 							}, includeText ? "含文字任务 ✓" : "含文字任务")
 						: null,
-					module === "code" && data.tasks.some((t) => t.modules.some((m) => m.complete === false))
+					module === "code" && (data.tasks.some((t) => t.modules.some((m) => m.complete === false))
+						|| Object.values(aiVerdicts).some((v) => v && v.usable === false))
 						? h("button", {
 								className: "ch-chip",
 								"data-on": includeFragments ? "1" : "0",
 								title: "只有几行、没有入口的代码片段（例如报错示例、单行改法）默认不展示；点这里可以显示",
 								onClick: () => setIncludeFragments(!includeFragments),
 							}, includeFragments ? "含片段 ✓" : "含片段")
+						: null,
+					module === "code" && typeof (window.dshDesktop && window.dshDesktop.judgeCode) === "function"
+						? h("button", {
+								className: "ch-chip",
+								"data-on": aiOn ? "1" : "0",
+								title: "让 AI 判断每段代码能不能独立完成一个功能（结果按代码缓存，同一段只问一次）",
+								onClick: () => setAiOn(!aiOn),
+							},
+							aiState === "running"
+								? "AI 判断中…"
+								: aiState === "fail"
+									? "AI 判断失败（用本地规则）"
+									: aiOn
+										? "AI 判断 ✓"
+										: "AI 判断")
 						: null,
 					count > 0 ? h("button", { className: "ch-chip", onClick: exportMarkdown }, "导出") : null,
 					h("span", { className: "ch-count" },

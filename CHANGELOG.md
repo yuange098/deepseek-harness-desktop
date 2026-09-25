@@ -85,6 +85,18 @@
   完整脚本（有 `__main__`）判为完整、8 行片段判为片段并隐藏；线上实测"一个任务只摊开 1 张主卡"。
 - 取证脚本：`tools/probes/probe-code-text.cjs`、`tools/probes/probe-judge.cjs`。
 
+**让 AI 判断"这段代码能不能独立完成一个功能"**
+- 动机：本地规则（有主流程/读写数据/行数）会把"看着像脚本、其实只是日志或说明文本"的东西也算成完整；
+  用户提议直接用模型判断，更合理。
+- 实现：桌面壳新增 `desktop/src/ai-judge.js` —— 从 `$DSH_HOME/.credentials.yaml` 取
+  `DEEPSEEK_API_KEY`（只在主进程内用，不打日志、不返回页面），调用 `https://api.deepseek.com`
+  的 `deepseek-chat`，要求模型只回 JSON：`{usable, feature(≤12字中文功能名), reason}`；
+  结果按 `sha1(语言+代码)` 缓存到 `home/cache/code-history/judge.json`，单次最多问 8 段、并发 2。
+  页面侧通过 `preload.judgeCode()` → IPC 调用，判为片段的折叠、判为可用的把 `feature` 当标题并打「AI 判定」标记。
+- 验收：单元测试 7 项（读密钥 / 解析带围栏 JSON / 无效输入 / 指纹 / 缓存命中不再调用 / 无密钥报错）；
+  真实调用 2 段：完整脚本 → `usable=true`「月度营收柱状图」；片段 → `usable=false`「数据清洗片段 · 缺少数据源与完整流程」；
+  真实界面里「AI 判断 ✓」生效，缓存 7 条（5 条判为片段，含"仅为测试说明文本，非可运行代码"这种本地规则抓不到的）。
+
 **右侧面板：从"改按钮"到"改容器"（本日最后一段）**
 - 误把"容器太大"理解成"按钮太大" → 先把按钮压到 36px 高，用户指出方向错了。
 - 取证后确认：面板宽度由 app 自己的布局状态决定（`--dsh-sidebar-width` + 占位列 `rightbarCol` + 拖拽把手）。

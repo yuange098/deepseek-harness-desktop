@@ -28,6 +28,7 @@ const http = require('node:http');
 const net = require('node:net');
 const path = require('node:path');
 const { deleteSessionData, planSessionDeletion, describeSession } = require('./session-store.js');
+const { judgeCodes } = require('./ai-judge.js');
 
 const DSH_BIN_RELATIVE = path.join('core', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
 const URL_PATTERN = /dsh web:\s+(http\S+)/;
@@ -906,6 +907,22 @@ async function checkForUpdates() {
  * （任何越界路径都会被拒绝，不会误删别的文件）。
  */
 function registerSessionIpc() {
+  // AI 判定：页面把"可能算完整的代码"发过来，主进程调用模型并缓存结果
+  ipcMain.handle('dsh:judge-code', async (_event, items) => {
+    try {
+      const result = await judgeCodes(config.home, items, {
+        maxCalls: 8,
+        baseUrl: (config.judge && config.judge.baseUrl) || undefined,
+        model: (config.judge && config.judge.model) || undefined,
+      });
+      if (result.calls > 0) {
+        appendLog(`[desktop] AI 判定代码：调用 ${result.calls} 次，命中缓存 ${Object.keys(result.results || {}).length - result.calls}，跳过 ${result.skipped || 0}`);
+      }
+      return result;
+    } catch (error) {
+      return { ok: false, results: {}, calls: 0, error: String((error && error.message) || error) };
+    }
+  });
   ipcMain.handle('dsh:describe-session', async (_event, sessionId) => {
     try {
       return await describeSession(config.home, sessionId);

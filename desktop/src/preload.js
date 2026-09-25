@@ -6,6 +6,7 @@
  *   window.dshDesktop.deleteSession(sessionId)        → 真删
  *   window.dshDesktop.planSessionDeletion(sessionId)  → 只列清单（不删，供调试/预览）
  *   window.dshDesktop.describeSession(sessionId)      → 只看规模（轮次/步骤/体积）
+ *   window.dshDesktop.judgeCode(items)                → 让 AI 判断这些代码能不能独立完成一个功能（带缓存）
  *   window.dshDesktop.isDesktop                      → true（页面用它判断是否在桌面壳里）
  */
 const { contextBridge, ipcRenderer } = require('electron');
@@ -16,4 +17,5 @@ contextBridge.exposeInMainWorld('dshDesktop', {
   planSessionDeletion: (sessionId) =>
     ipcRenderer.invoke('dsh:plan-delete-session', String(sessionId ?? '')),
   describeSession: (sessionId) => ipcRenderer.invoke('dsh:describe-session', String(sessionId ?? '')),
+  judgeCode: (items) => ipcRenderer.invoke('dsh:judge-code', Array.isArray(items) ? items.slice(0, 20) : []),
 });
