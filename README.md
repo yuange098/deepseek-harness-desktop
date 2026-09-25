@@ -135,7 +135,17 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1
 # 产物：E:\DeepSeekHarness\desktop\dist\DeepSeek Harness-win32-x64\DeepSeek Harness.exe
 ```
 
-> ⚠️ 改完 `desktop/src/main.js` 后，要把它同步到打包产物的 `resources\app\src\`，否则 exe 里跑的还是旧代码。
+> ⚠️ **桌面壳有两份代码**：编辑的是 `desktop/src/`，但双击运行的 exe 读的是同目录下
+> `resources\app\src\`。改完必须同步，否则"插件明明是新的、桌面功能却是旧的"——
+> 本项目就因为这个踩过一次：删除按钮一直提示"不是桌面客户端打开的"。
+> 直接用现成脚本，同步 + 重启一步到位：
+>
+> ```powershell
+> powershell -ExecutionPolicy Bypass -File tools\publish\ship-desktop.ps1
+> ```
+>
+> 它会拷贝 `src` 与 `assets`、校验打包版里确实包含新代码（`preload.js` / `dsh:delete-session` /
+> `session-store.js`），然后重启客户端。
 
 ## 五、目录结构
 
