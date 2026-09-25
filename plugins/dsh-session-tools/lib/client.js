@@ -35,6 +35,7 @@ window.__ModuleLoader__.load({
 			"word-break:break-all;line-height:1.5}",
 			".dsh-del-warn{font-size:13px;line-height:1.6;border-radius:10px;padding:10px 12px;",
 			"background:rgba(217,45,32,.08);border:.5px solid rgba(217,45,32,.3);color:#b42318}",
+			".dsh-del-note{margin-top:6px;font-size:12.5px;color:#b42318;opacity:.85}",
 			".dsh-del-status{font-size:12.5px;margin-top:10px;color:var(--dsw-alias-label-tertiary,#777)}",
 			".dsh-del-status[data-kind=error]{color:#b42318}",
 			".dsh-del-foot{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}",
@@ -82,6 +83,18 @@ window.__ModuleLoader__.load({
 			return text.trim().slice(0, 80) || "（未命名对话）";
 		};
 
+		/** 当前正在打开的那个会话（官方把它存在 localStorage 里）。 */
+		const currentSessionId = () => {
+			try {
+				const raw = localStorage.getItem("dsh.sessions.current");
+				if (!raw) return null;
+				const parsed = JSON.parse(raw);
+				return typeof parsed === "string" ? parsed : parsed && parsed.sessionId ? parsed.sessionId : null;
+			} catch {
+				return null;
+			}
+		};
+
 		//#region 确认弹窗
 		let openDialog = null;
 
@@ -119,6 +132,13 @@ window.__ModuleLoader__.load({
 			warn.appendChild(document.createTextNode(
 				"这个对话的全部记录数据都会被永久删除：消息与轨迹、代码归档、以及相关的本地缓存。",
 			));
+			// 正开着的那个会话，服务端还把它放在内存里：文件删了、列表可能残留一条。
+			if (sessionId === currentSessionId()) {
+				const note = document.createElement("div");
+				note.className = "dsh-del-note";
+				note.textContent = "注意：这是你当前打开的对话，删完列表可能还残留一条，重启一次软件即可清掉（文件已经删了）。";
+				warn.appendChild(note);
+			}
 			const status = document.createElement("div");
 			status.className = "dsh-del-status";
 
