@@ -27,7 +27,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const net = require('node:net');
 const path = require('node:path');
-const { deleteSessionData, planSessionDeletion } = require('./session-store.js');
+const { deleteSessionData, planSessionDeletion, describeSession } = require('./session-store.js');
 
 const DSH_BIN_RELATIVE = path.join('core', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
 const URL_PATTERN = /dsh web:\s+(http\S+)/;
@@ -906,6 +906,13 @@ async function checkForUpdates() {
  * （任何越界路径都会被拒绝，不会误删别的文件）。
  */
 function registerSessionIpc() {
+  ipcMain.handle('dsh:describe-session', async (_event, sessionId) => {
+    try {
+      return await describeSession(config.home, sessionId);
+    } catch (error) {
+      return { ok: false, error: String((error && error.message) || error) };
+    }
+  });
   ipcMain.handle('dsh:plan-delete-session', async (_event, sessionId) => {
     try {
       return await planSessionDeletion(config.home, sessionId);

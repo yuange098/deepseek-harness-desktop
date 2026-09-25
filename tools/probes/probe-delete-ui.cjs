@@ -14,7 +14,7 @@ const WORK = process.env.DSH_WORK || path.join(__dirname, '..');
 const LOGS = 'E:\\DeepSeekHarness\\logs';
 const HOME = 'E:\\DeepSeekHarness\\home';
 const PRELOAD = 'E:\\DeepSeekHarness\\desktop\\src\\preload.js';
-const { deleteSessionData, planSessionDeletion } = require('E:\\DeepSeekHarness\\desktop\\src\\session-store.js');
+const { deleteSessionData, planSessionDeletion, describeSession } = require('E:\\DeepSeekHarness\\desktop\\src\\session-store.js');
 
 app.setPath('userData', path.join(WORK, '.electron-scratch-del'));
 app.disableHardwareAcceleration();
@@ -36,6 +36,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 app.whenReady().then(async () => {
   // 用桌面壳同一套实现注册 IPC（这样页面里 window.dshDesktop 就是真实链路）
+  ipcMain.handle('dsh:describe-session', (_e, id) => describeSession(HOME, id));
   ipcMain.handle('dsh:plan-delete-session', (_e, id) => planSessionDeletion(HOME, id));
   ipcMain.handle('dsh:delete-session', (_e, id) => deleteSessionData(HOME, id));
 
@@ -81,6 +82,14 @@ app.whenReady().then(async () => {
     return { hasMask: true, hasWarning: text.includes('无法恢复'), text: text.slice(0, 90), buttons };
   })()`);
   console.log('弹窗: ' + JSON.stringify(opened));
+
+  // 规模统计是异步填的，等一会儿再看
+  await sleep(2500);
+  const scale = await win.webContents.executeJavaScript(`(() => {
+    const node = document.querySelector('.dsh-del-scale');
+    return node ? node.textContent.trim() : null;
+  })()`);
+  console.log('规模行: ' + scale);
 
   // 取消 → 弹窗应关闭，且什么都不删
   const cancelled = await win.webContents.executeJavaScript(`(() => {

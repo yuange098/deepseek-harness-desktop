@@ -36,6 +36,10 @@ window.__ModuleLoader__.load({
 			".dsh-del-warn{font-size:13px;line-height:1.6;border-radius:10px;padding:10px 12px;",
 			"background:rgba(217,45,32,.08);border:.5px solid rgba(217,45,32,.3);color:#b42318}",
 			".dsh-del-note{margin-top:6px;font-size:12.5px;color:#b42318;opacity:.85}",
+			".dsh-del-scale{font-size:12.5px;color:var(--dsw-alias-label-secondary,#555);margin:0 0 10px;",
+			"display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}",
+			".dsh-del-scale b{font-weight:600;color:var(--dsw-alias-label-primary,#111)}",
+			".dsh-del-scale span{white-space:nowrap}",
 			".dsh-del-status{font-size:12.5px;margin-top:10px;color:var(--dsw-alias-label-tertiary,#777)}",
 			".dsh-del-status[data-kind=error]{color:#b42318}",
 			".dsh-del-foot{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}",
@@ -95,6 +99,37 @@ window.__ModuleLoader__.load({
 			}
 		};
 
+		const humanSize = (bytes) => {
+			const n = Number(bytes) || 0;
+			return n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
+		};
+		const humanCount = (value) => {
+			const n = Number(value);
+			if (!Number.isFinite(n)) return null;
+			return n >= 10000 ? (n / 1000).toFixed(1) + "k" : String(n);
+		};
+		/** 把这行规模填出来：轮次 / 步骤 / 磁盘占用 / 输出 tokens。 */
+		const fillScale = (node, info) => {
+			node.textContent = "";
+			const parts = [];
+			if (info && info.blank) parts.push(["空会话", "没有消息内容"]);
+			const turns = humanCount(info && info.turns);
+			if (turns !== null) parts.push(["轮次", turns]);
+			const steps = humanCount(info && info.steps);
+			if (steps !== null) parts.push(["步骤", steps]);
+			parts.push(["磁盘占用", info && Number.isFinite(info.bytes) ? humanSize(info.bytes) : "未知"]);
+			const out = humanCount(info && info.tokens && info.tokens.outputTokens);
+			if (out !== null) parts.push(["输出 tokens", out]);
+			for (const [label, value] of parts) {
+				const span = document.createElement("span");
+				span.appendChild(document.createTextNode(label + " "));
+				const strong = document.createElement("b");
+				strong.textContent = value;
+				span.appendChild(strong);
+				node.appendChild(span);
+			}
+		};
+
 		//#region 确认弹窗
 		let openDialog = null;
 
@@ -124,6 +159,10 @@ window.__ModuleLoader__.load({
 			const sub = document.createElement("p");
 			sub.className = "dsh-del-sub";
 			sub.textContent = "「" + title + "」";
+			// 删除前先让你看清要删掉多大的东西（轮次 / 步骤 / 磁盘占用 / token）
+			const scale = document.createElement("div");
+			scale.className = "dsh-del-scale";
+			scale.textContent = "正在统计规模…";
 			const warn = document.createElement("div");
 			warn.className = "dsh-del-warn";
 			const warnStrong = document.createElement("strong");
@@ -157,6 +196,7 @@ window.__ModuleLoader__.load({
 
 			box.appendChild(h);
 			box.appendChild(sub);
+			box.appendChild(scale);
 			box.appendChild(warn);
 			box.appendChild(status);
 			box.appendChild(foot);
@@ -220,6 +260,22 @@ window.__ModuleLoader__.load({
 			openDialog = mask;
 			cancel.focus();
 			box.addEventListener("click", (event) => event.stopPropagation());
+
+			// 规模是异步取的（桌面壳读投影缓存 + 目录体积），不阻塞确认按钮
+			const api = window.dshDesktop;
+			if (api && typeof api.describeSession === "function") {
+				api.describeSession(sessionId)
+					.then((info) => {
+						if (!mask.isConnected) return;
+						fillScale(scale, info && info.ok ? info : null);
+						if (!info || !info.ok) scale.textContent = "统计失败（不影响删除）";
+					})
+					.catch(() => {
+						if (mask.isConnected) scale.textContent = "统计失败（不影响删除）";
+					});
+			} else {
+				scale.textContent = "";
+			}
 		};
 		//#endregion
 

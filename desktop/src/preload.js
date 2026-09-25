@@ -5,6 +5,7 @@
  * 所以这里用 contextBridge 暴露一个最小的、参数受限的接口：
  *   window.dshDesktop.deleteSession(sessionId)        → 真删
  *   window.dshDesktop.planSessionDeletion(sessionId)  → 只列清单（不删，供调试/预览）
+ *   window.dshDesktop.describeSession(sessionId)      → 只看规模（轮次/步骤/体积）
  *   window.dshDesktop.isDesktop                      → true（页面用它判断是否在桌面壳里）
  */
 const { contextBridge, ipcRenderer } = require('electron');
@@ -14,4 +15,5 @@ contextBridge.exposeInMainWorld('dshDesktop', {
   deleteSession: (sessionId) => ipcRenderer.invoke('dsh:delete-session', String(sessionId ?? '')),
   planSessionDeletion: (sessionId) =>
     ipcRenderer.invoke('dsh:plan-delete-session', String(sessionId ?? '')),
+  describeSession: (sessionId) => ipcRenderer.invoke('dsh:describe-session', String(sessionId ?? '')),
 });

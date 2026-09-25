@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { deleteSessionData, planSessionDeletion, isValidSessionId } = require(
+const { deleteSessionData, planSessionDeletion, isValidSessionId, describeSession } = require(
   'E:\\DeepSeekHarness\\desktop\\src\\session-store.js',
 );
 
@@ -59,6 +59,38 @@ const check = (name, fn) => {
   });
 
   const dry = await deleteSessionData(home, SID, { dryRun: true });
+
+  // 规模统计：往缓存里塞一份带 sessionStats 的投影缓存
+  const cacheFile = path.join(home, 'storages', 'session_projcache', 'sessions', `${SID}.json`);
+  fs.writeFileSync(
+    cacheFile,
+    JSON.stringify({
+      version: 7,
+      record: {
+        rows: {
+          title: { val: '测试对话' },
+          sessionStats: { val: { turns: 6, steps: 23 } },
+          sessionListMetadata: { val: { blank: false, lastPromptAt: 1790262303842 } },
+          tokenUsage: { val: { totals: { uncachedInputTokens: 1000, outputTokens: 21057 } } },
+        },
+      },
+    }),
+    'utf8',
+  );
+  const described = await describeSession(home, SID);
+  check('describeSession 读出标题/轮次/步骤/token/体积', () => {
+    assert.equal(described.ok, true);
+    assert.equal(described.title, '测试对话');
+    assert.equal(described.turns, 6);
+    assert.equal(described.steps, 23);
+    assert.equal(described.tokens.outputTokens, 21057);
+    assert.ok(described.bytes > 0);
+  });
+  const badDescribe = await describeSession(home, '../x');
+  check('describeSession 拒绝非法 id', () => {
+    assert.equal(badDescribe.ok, false);
+    assert.equal(badDescribe.error, 'invalid-session-id');
+  });
   check('dry-run 列出的目标正好是会话目录 + 缓存文件', () => {
     assert.equal(dry.ok, true);
     assert.equal(dry.targets.length, 2);

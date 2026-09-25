@@ -58,6 +58,7 @@ DSH 官方目前只有 Web 版：每次使用都要打开浏览器、输入地�
 | 删除链路 | 页面按钮 → preload（`window.dshDesktop.deleteSession`）→ IPC → 桌面壳按 id 精准删数据 → 刷新列表 |
 | 删除范围 | `home/sessions/<工作区>/<会话id>/`（对话记录本体）、`home/storages/session_projcache/sessions/<id>.json`（投影缓存），并把该 id 从 `home/storages/workspace.json` 的登记里摘掉 |
 | 二次确认 | 弹窗写明「删除后无法恢复」，并列出会被清掉的内容；默认焦点在「取消」，Esc 也关 |
+| 删除前先看规模 | 弹窗一打开就异步统计并显示：**轮次 / 步骤 / 磁盘占用 / 输出 tokens**（读投影缓存 + 目录体积，不解压对话记录，所以很快） |
 | 安全设计 | id 必须是 UUID 形态；每个删除目标都做**包含性校验**（拒绝路径穿越）；`home/attachments` 是内容寻址的共享附件库，**不随单个对话删除**（否则会连带其它对话）；删除逻辑有 9 项单元测试 |
 | 非桌面环境 | 在浏览器里打开时会明确提示「请用桌面版操作」，不会静默失败 |
 

@@ -32,6 +32,87 @@ const exists = async (target) => {
   }
 };
 
+/** 递归统计一个目录的体积（会话目录通常只有几百 KB ~ 几 MB）。 */
+async function dirSize(target) {
+  let bytes = 0;
+  let files = 0;
+  let entries = [];
+  try {
+    entries = await fsp.readdir(target, { withFileTypes: true });
+  } catch {
+    return { bytes, files };
+  }
+  for (const entry of entries) {
+    const child = path.join(target, entry.name);
+    if (entry.isDirectory()) {
+      const sub = await dirSize(child);
+      bytes += sub.bytes;
+      files += sub.files;
+    } else if (entry.isFile()) {
+      try {
+        const stat = await fsp.stat(child);
+        bytes += stat.size;
+        files += 1;
+      } catch {
+        /* 读不到就跳过 */
+      }
+    }
+  }
+  return { bytes, files };
+}
+
+/**
+ * 删除前给用户看"要删掉多大的东西"。
+ * 元信息（标题/轮次/步骤/token/是否空白）直接从投影缓存里读，不用解压对话记录。
+ */
+async function describeSession(homeDir, sessionId) {
+  if (!isValidSessionId(sessionId)) return { ok: false, error: 'invalid-session-id' };
+  const dirs = await findSessionDirs(homeDir, sessionId);
+  const caches = await findCacheFiles(homeDir, sessionId);
+  let bytes = 0;
+  let files = 0;
+  for (const dir of dirs) {
+    const size = await dirSize(dir);
+    bytes += size.bytes;
+    files += size.files;
+  }
+  for (const file of caches) {
+    try {
+      const stat = await fsp.stat(file);
+      bytes += stat.size;
+      files += 1;
+    } catch {
+      /* 忽略 */
+    }
+  }
+  let meta = null;
+  for (const file of caches) {
+    try {
+      const parsed = JSON.parse(await fsp.readFile(file, 'utf8'));
+      const rows = parsed?.record?.rows ?? {};
+      meta = {
+        title: rows.title?.val ?? null,
+        blank: Boolean(rows.sessionListMetadata?.val?.blank),
+        turns: rows.sessionStats?.val?.turns ?? null,
+        steps: rows.sessionStats?.val?.steps ?? null,
+        tokens: rows.tokenUsage?.val?.totals ?? null,
+        lastPromptAt: rows.sessionListMetadata?.val?.lastPromptAt ?? null,
+      };
+      break;
+    } catch {
+      /* 缓存坏了就只报体积 */
+    }
+  }
+  return {
+    ok: true,
+    sessionId,
+    bytes,
+    files,
+    dirCount: dirs.length,
+    ...(meta ?? {}),
+  };
+}
+
 /** 同一个会话可能出现在多个工作区目录下（换工作区后重建过），全都要删。 */
 async function findSessionDirs(homeDir, sessionId) {
   const root = path.join(homeDir, 'sessions');
@@ -151,4 +232,4 @@ async function deleteSessionData(homeDir, sessionId, options = {}) {
   };
 }
 
-module.exports = { isValidSessionId, planSessionDeletion, deleteSessionData };
+module.exports = { isValidSessionId, planSessionDeletion, deleteSessionData, describeSession };
