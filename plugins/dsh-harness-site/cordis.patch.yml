@@ -1,0 +1,5 @@
+# Harness 官网风格主题的 profile patch 层：插入一条 host 侧 loader 行；
+# 浏览器半边由 dsh-client-modules 依据 package.json 的 dsh.client 声明加载。
+- insert:
+    - id: harness-site-theme
+      name: 'dsh-harness-site'

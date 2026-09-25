@@ -1,0 +1,21 @@
+{
+  "name": "dsh-desktop",
+  "productName": "DeepSeek Harness",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DeepSeek Harness 桌面客户端：封装本地 dsh 运行时（自动启动、无需浏览器）",
+  "main": "src/main.js",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "package": "electron-packager . \"DeepSeek Harness\" --platform=win32 --arch=x64 --icon=assets/icon.ico --out=dist --overwrite --prune=true --asar"
+  },
+  "devDependencies": {
+    "@electron/packager": "^18.4.4",
+    "electron": "44.4.5",
+    "rcedit": "^5.0.2"
+  },
+  "allowScripts": {
+    "electron": true
+  }
+}

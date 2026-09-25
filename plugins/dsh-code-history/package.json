@@ -1,0 +1,30 @@
+{
+  "name": "dsh-code-history",
+  "version": "0.1.0",
+  "private": true,
+  "description": "会话「代码」页签：把该对话里执行过的代码与回答里给出的代码，整理成可直接运行的模块",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": { "default": "./lib/index.js" },
+    "./client": { "default": "./lib/client.js" },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ],
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-client-ui-conversation": ">=0.1.5-rc.1",
+    "@deepseek-ai/dsh-client-ui-primitives": ">=0.1.5-rc.1",
+    "react": "^18.3.1"
+  },
+  "license": "MIT"
+}

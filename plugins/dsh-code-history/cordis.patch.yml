@@ -1,0 +1,4 @@
+# 「代码」页签插件：host 侧只需要一行 loader 注册，界面全在浏览器半边。
+- insert:
+    - id: code-history
+      name: 'dsh-code-history'

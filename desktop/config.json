@@ -1,0 +1,9 @@
+{
+  "root": "E:\\DeepSeekHarness",
+  "core": "E:\\DeepSeekHarness\\core",
+  "home": "E:\\DeepSeekHarness\\home",
+  "workspace": "E:\\DeepSeekHarness\\workspace",
+  "logs": "E:\\DeepSeekHarness\\logs",
+  "port": 3080,
+  "title": "DeepSeek Harness"
+}

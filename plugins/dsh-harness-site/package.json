@@ -1,0 +1,30 @@
+{
+  "name": "dsh-harness-site",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Harness 官网风格主题：浅色玻璃面 + 近黑主按钮 / 深色 #0a0a0a 画布 + 白按钮，取自 deepseek.com/harness 的设计变量",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-theme"
+      ],
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "license": "MIT"
+}
