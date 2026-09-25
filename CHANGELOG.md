@@ -47,6 +47,20 @@
 - 追加：删除前显示规模（轮次 / 步骤 / 磁盘占用 / 输出 tokens），数据取投影缓存 + 目录体积；
   删「当前打开的对话」时额外提示"列表可能残留一条，重启即清"；单元测试扩到 11 项。
 
+**修掉"鼠标划过就能拖聊天框宽度"**
+- 取证（`tools/probes/probe-splitters.cjs`）扫出 4 个 resize 元素，其中两个是官方
+  `dsh-client-ui-conversation` 的 `widthHandle`（10×842px、`cursor:col-resize`、跟着
+  `--dsh-chat-content-width` 定位）—— 就是"能来回拖动聊天框宽度"的那个东西。
+- 处理：主题插件注入 `[class*="widthHandle"]{display:none !important}`，只藏手柄本身，
+  不动容器与布局；右侧面板那根把手（"拖一次记住宽度"用的）刻意保留。
+- 验收：手柄尺寸变 0×0（碰不到），右侧把手仍在（8×918），会话行与「删除对话」按钮无异常。
+
+**桌面壳两份代码的坑（真实踩过）**
+- 现象：插件里的删除按钮一直提示"当前不是在桌面客户端里打开的"。
+- 根因：改的是 `desktop/src/`，而双击的 exe 读的是 `resources/app/src/`。
+- 处理：新增 `tools/publish/ship-desktop.ps1`（同步 src+assets → 校验打包版含新代码 → 重启）；
+  桌面壳启动时也往日志写一行 `[desktop] 会话 IPC 已就绪` 便于自检。
+
 **右侧面板：从"改按钮"到"改容器"（本日最后一段）**
 - 误把"容器太大"理解成"按钮太大" → 先把按钮压到 36px 高，用户指出方向错了。
 - 取证后确认：面板宽度由 app 自己的布局状态决定（`--dsh-sidebar-width` + 占位列 `rightbarCol` + 拖拽把手）。

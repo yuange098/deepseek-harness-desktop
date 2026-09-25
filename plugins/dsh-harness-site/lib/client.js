@@ -106,6 +106,16 @@ window.__ModuleLoader__.load({
 				".hHd-Xa_footArea > *{flex:1 1 0 !important;min-width:0 !important}",
 				/* 4) 气泡描边 */
 				'[class*="_bubble"]{box-shadow:inset 0 0 0 1px rgba(77,107,254,.35) !important}',
+				/*
+				 * 5) 干掉"聊天内容宽度"的拖拽手柄。
+				 * 官方 dsh-client-ui-conversation 在聊天列两侧各放了一条 widthHandle
+				 * （10px 宽、整列高、cursor:col-resize，位置跟着 --dsh-chat-content-width 走），
+				 * 鼠标扫过去就会变成左右箭头、还能把聊天列拖宽拖窄 —— 在「代码」页这种
+				 * 聊天列已经隐藏的视图里尤其容易误触（用户反馈过两次）。
+				 * 只隐藏手柄本身，不动容器、不动布局，也不碰右侧面板那根把手
+				 * （那是"拖一次记住宽度"用的，属于要保留的功能）。
+				 */
+				'[class*="widthHandle"]{display:none !important}',
 			].join("");
 			document.head.appendChild(style);
 
