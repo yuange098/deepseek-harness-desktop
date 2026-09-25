@@ -766,14 +766,39 @@ window.__ModuleLoader__.load({
 .ch-busy{font-size:12px;color:var(--dsw-alias-label-tertiary)}
 .ch-hint{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dsw-alias-label-tertiary);
 border:.5px dashed var(--dsw-alias-border-l2);border-radius:10px;padding:6px 10px}
-.ch-text-list{display:flex;flex-direction:column;gap:10px}
-.ch-text{border:.5px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-settings-card-fill);border-radius:12px;overflow:hidden}
+.ch-text{border:.5px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-settings-card-fill);border-radius:12px;overflow:hidden;cursor:pointer}
+.ch-text:hover{border-color:var(--dsw-alias-state-business-primary)}
+.ch-text[data-open="1"]{grid-column:1/-1;cursor:default}
+.ch-text-hint{font-size:11.5px;color:var(--dsw-alias-label-tertiary)}
 .ch-text-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;background:var(--dsw-alias-bg-layer-1);border-bottom:.5px solid var(--dsw-alias-border-l1)}
 .ch-text-title{font-size:13.5px;font-weight:600;color:var(--dsw-alias-label-primary)}
 .ch-text-meta{font-size:11.5px;color:var(--dsw-alias-label-tertiary);margin-left:auto}
 .ch-text-body{margin:0;padding:10px 14px;max-height:340px;overflow:auto;white-space:pre-wrap;word-break:break-word;
 font-size:13px;line-height:1.75;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2)}
 .ch-tag-hi{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
+.ch-seg-lg>button{font-size:13.5px;padding:5px 16px}
+.ch-seg-sm>button{font-size:12.5px;padding:4px 10px}
+.ch-langs{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.ch-langs-label{font-size:11.5px;color:var(--dsw-alias-label-tertiary)}
+.ch-chip-py{border-color:#3b82f6;color:#2563eb;font-weight:600}
+.ch-chip-py[data-on="1"]{background:rgba(59,130,246,.12)}
+.ch-right{margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:nowrap;flex:0 0 auto}
+/* 顺序写死：计数 → 搜索框 → 展示方式（最右），不随其它样式跑偏 */
+.ch-right>.ch-count{order:1;white-space:nowrap}
+.ch-right>.ch-input{order:2;flex:0 0 auto}
+.ch-right>.ch-view{order:3}
+.ch-view{position:relative;display:inline-flex;flex:0 0 auto;width:26px;justify-content:center}
+.ch-icon{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;
+border:.5px solid var(--dsw-alias-border-l3);background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;padding:0}
+.ch-icon:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.ch-icon[data-on="1"]{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
+.ch-pop{position:absolute;right:0;top:32px;z-index:20;display:flex;flex-direction:column;gap:2px;min-width:104px;
+border:.5px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-settings-card-fill,#fff);
+box-shadow:0 8px 24px rgba(0,0,0,.18);padding:4px}
+.ch-pop>button{border:none;background:transparent;text-align:left;font:inherit;font-size:12.5px;padding:6px 10px;
+border-radius:7px;cursor:pointer;color:var(--dsw-alias-label-secondary)}
+.ch-pop>button:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.ch-pop>button[data-on="1"]{color:var(--dsw-alias-state-business-primary);font-weight:600}
 `;
 		/** 新版视图：按任务分组 / 平铺可切换，带语言标注与过滤。 */
 		function CodeView2(props) {
@@ -1180,14 +1205,21 @@ font-size:13px;line-height:1.75;color:var(--dsw-alias-label-primary);background:
 			const preview = String(item.text || "");
 			const clipped = preview.length > 420;
 			const body = open || !clipped ? preview : preview.slice(0, 420) + "\n…";
-			return h("article", { className: "ch-text" },
+			// 块状卡片：点一下就展开/收起；展开后横跨整行
+			return h("article", { className: "ch-text", "data-open": open ? "1" : "0", onClick: onToggle },
 				h("header", { className: "ch-text-head" },
 					h("span", { className: "ch-text-title" }, item.title || "文本"),
 					h("span", { className: "ch-tag" }, item.source === "文件" ? "文件" : "回答"),
 					item.versions > 1 ? h("span", { className: "ch-tag ch-tag-hi" }, "共 " + item.versions + " 版 · 只留最新") : null,
 					h("span", { className: "ch-text-meta" }, item.chars + " 字 · " + item.paragraphs + " 段"),
-					h("button", { className: "ch-btn", onClick: onCopy }, copied ? "已复制" : "复制"),
-					clipped ? h("button", { className: "ch-btn", onClick: onToggle }, open ? "收起" : "展开全文") : null,
+					h("button", {
+						className: "ch-btn",
+						onClick: (event) => {
+							event.stopPropagation();
+							onCopy();
+						},
+					}, copied ? "已复制" : "复制"),
+					clipped ? h("span", { className: "ch-text-hint" }, open ? "收起" : "展开") : null,
 				),
 				h("pre", { className: "ch-text-body" }, body),
 			);
@@ -1222,6 +1254,11 @@ font-size:13px;line-height:1.75;color:var(--dsw-alias-label-primary);background:
 			const [includeFragments, setIncludeFragments] = react.useState(false);
 			// 每个任务默认只摊开"完整代码"，过程文件收起来
 			const [openTasks, setOpenTasks] = react.useState(() => new Set());
+			// 代码类型筛选（Python 优先/高亮）+ 展示方式气泡
+			const [langFilter, setLangFilter] = react.useState("all");
+			const [viewMenuOpen, setViewMenuOpen] = react.useState(false);
+			// 文本模块的子筛选：全部 / 回答 / 文件
+			const [textSource, setTextSource] = react.useState("all");
 			// AI 判定：让模型判断"这段代码能不能独立完成一个功能"，结果按指纹缓存（主进程里缓存，重复看不再花钱）
 			const [aiVerdicts, setAiVerdicts] = react.useState({});
 			const [aiState, setAiState] = react.useState("idle"); // idle | running | off | fail
@@ -1263,6 +1300,23 @@ font-size:13px;line-height:1.75;color:var(--dsw-alias-label-primary);background:
 			};
 			/** 完整代码优先；片段只在打开「含片段」时出现。 */
 			const keepCode = (item) => includeFragments || item.complete !== false;
+			// 有哪些语言可选（Python 排最前，其它按出现次数；工具栏只列前 3 个）
+			const langCounts = new Map();
+			for (const item of [...data.tasks.flatMap((t) => t.modules), ...data.answers]) {
+				const key = String(item.lang || "text");
+				langCounts.set(key, (langCounts.get(key) || 0) + 1);
+			}
+			const langOptions = [...langCounts.entries()]
+				.sort((a, b) => (a[0] === "python" ? -1 : b[0] === "python" ? 1 : b[1] - a[1]))
+				.map(([name, n]) => ({ name, n }));
+			const listedLangs = new Set(langOptions.slice(0, 3).map((option) => option.name));
+			/** 代码类型筛选：python 单独成一档；「其它」= 工具栏没列出的语言。 */
+			const keepLang = (item) => {
+				if (langFilter === "all") return true;
+				if (langFilter === "python") return item.lang === "python";
+				if (langFilter === "other") return !listedLangs.has(item.lang);
+				return item.lang === langFilter;
+			};
 			const tasks = data.tasks
 				.map((task) => ({
 					...task,
@@ -1270,10 +1324,11 @@ font-size:13px;line-height:1.75;color:var(--dsw-alias-label-primary);background:
 						.map(decorate)
 						.filter(hit)
 						.filter(keepCode)
+						.filter(keepLang)
 						.sort((a, b) => (Number(b.complete) - Number(a.complete)) || (b.order - a.order)),
 				}))
 				.filter((task) => task.modules.length > 0);
-			const answers = data.answers.map(decorate).filter(hit).filter(keepCode);
+			const answers = data.answers.map(decorate).filter(hit).filter(keepCode).filter(keepLang);
 			/*
 			 * 任务意图过滤：文字类任务（写文章/润色/翻译/整理文档…）里出现的代码只是过程副产品，
 			 * 默认不展示；代码类任务（问代码、处理数据、绘图…）照常展示。
@@ -1334,11 +1389,40 @@ font-size:13px;line-height:1.75;color:var(--dsw-alias-label-primary);background:
 			}, [aiOn, busy, data, aiVerdicts]);
 
 			const texts = data.texts || [];
+			// 展示方式气泡：点别处关掉（点图标本身不算"别处"）
+			react.useEffect(() => {
+				if (!viewMenuOpen) return;
+				const onDown = (event) => {
+					const target = event.target;
+					if (target && target.closest && target.closest(".ch-view")) return;
+					setViewMenuOpen(false);
+				};
+				document.addEventListener("pointerdown", onDown, true);
+				return () => document.removeEventListener("pointerdown", onDown, true);
+			}, [viewMenuOpen]);
 			const shownTexts = texts.filter((item) => {
+				if (textSource === "answer" && item.source !== "回答") return false;
+				if (textSource === "file" && item.source !== "文件") return false;
 				if (!query.trim()) return true;
 				const hay = (item.title + " " + (item.path || "") + " " + item.text.slice(0, 400)).toLowerCase();
 				return hay.includes(query.trim().toLowerCase());
 			});
+			/** 回答页签「按任务」：把同一轮的代码归到一组，组标题带上当时的提问。 */
+			const answerGroups = (() => {
+				const byTurn = new Map();
+				for (const item of shownAnswers) {
+					const turn = Number(item.turn) || 0;
+					if (!byTurn.has(turn)) byTurn.set(turn, []);
+					byTurn.get(turn).push(item);
+				}
+				return [...byTurn.entries()]
+					.sort((a, b) => b[0] - a[0])
+					.map(([turn, items]) => {
+						const task = data.tasks.find((t) => t.turn === turn);
+						const prompt = task && task.prompt ? task.prompt.replace(/\s+/g, " ").slice(0, 20) : "";
+						return { turn, items, title: turn ? `任务 ${turn}` + (prompt ? `｜${prompt}` : "") : "未标记任务" };
+					});
+			})();
 			const [openText, setOpenText] = react.useState("");
 			const [openVersionOf, setOpenVersionOf] = react.useState("");
 			const [copied, setCopied] = react.useState("");
@@ -1422,33 +1506,49 @@ font-size:13px;line-height:1.75;color:var(--dsw-alias-label-primary);background:
 				h("style", null, CSS),
 				h("style", null, GRID_CSS),
 				h("div", { className: "ch-head" },
-					h("div", { className: "ch-seg" },
+					/* 第一层：代码 / 文本 平级 */
+					h("div", { className: "ch-seg ch-seg-lg" },
 						h("button", { "data-on": module === "code" ? "1" : "0", onClick: () => setModule("code") }, "代码"),
 						h("button", { "data-on": module === "text" ? "1" : "0", onClick: () => setModule("text") }, "文本"),
 					),
+					/* 第二层：代码下面是执行/回答；文本下面是全部/回答/文件 */
 					module === "code"
-						? h("div", { className: "ch-seg" },
+						? h("div", { className: "ch-seg ch-seg-sm" },
 							h("button", { "data-on": tab === "executed" ? "1" : "0", onClick: () => setTab("executed") }, "执行"),
 							h("button", { "data-on": tab === "answers" ? "1" : "0", onClick: () => setTab("answers") }, "回答"),
 						)
-						: null,
-					module === "code" && tab === "executed"
-						? h("div", { className: "ch-seg" },
-							h("button", { "data-on": layout === "task" ? "1" : "0", onClick: () => setLayout("task") }, "按任务"),
-							h("button", { "data-on": layout === "flat" ? "1" : "0", onClick: () => setLayout("flat") }, "平铺"),
+						: h("div", { className: "ch-seg ch-seg-sm" },
+							h("button", { "data-on": textSource === "all" ? "1" : "0", onClick: () => setTextSource("all") }, "全部"),
+							h("button", { "data-on": textSource === "answer" ? "1" : "0", onClick: () => setTextSource("answer") }, "回答"),
+							h("button", { "data-on": textSource === "file" ? "1" : "0", onClick: () => setTextSource("file") }, "文件"),
+						),
+					/* 代码类型：Python 单独高亮并排在最前 */
+					module === "code" && langOptions.length > 1
+						? h("div", { className: "ch-langs" },
+							h("span", { className: "ch-langs-label" }, "类型"),
+							h("button", { className: "ch-chip", "data-on": langFilter === "all" ? "1" : "0", onClick: () => setLangFilter("all") }, "全部"),
+							// 只列最常用的几个（Python 永远第一）；其余语言靠搜索/标题里带语言名也能筛到
+							...langOptions.slice(0, 3).map((option) => h("button", {
+								key: option.name,
+								className: "ch-chip" + (option.name === "python" ? " ch-chip-py" : ""),
+								"data-on": langFilter === option.name ? "1" : "0",
+								title: option.name === "python" ? "Python（处理数据最常用，已单独置顶）" : option.name,
+								onClick: () => setLangFilter(langFilter === option.name ? "all" : option.name),
+							}, option.name + " " + option.n)),
+							langOptions.length > 3
+								? h("button", {
+										className: "ch-chip",
+										"data-on": langFilter === "other" ? "1" : "0",
+										title: "只看上面没列出的语言：" + langOptions.slice(3).map((o) => o.name).join(" / "),
+										onClick: () => setLangFilter(langFilter === "other" ? "all" : "other"),
+									}, "其它")
+								: null,
 						)
 						: null,
 					busy ? h("span", { className: "ch-busy" }, "解析中…") : null,
 					module === "code" && tab === "answers" && data.answers.length > 1
 						? h("button", { className: "ch-chip", onClick: mergeAnswers }, "合并成可运行版本")
 						: null,
-					h("input", {
-						className: "ch-input",
-						placeholder: "搜索标题 / 文件名 / 语言",
-						value: query,
-						onChange: (e) => setQuery(e.target.value),
-						style: { minWidth: "150px" },
-					}),
 					hiddenTotal > 0
 						? h("button", {
 								className: "ch-chip",
@@ -1482,8 +1582,55 @@ font-size:13px;line-height:1.75;color:var(--dsw-alias-label-primary);background:
 										: "AI 判断")
 						: null,
 					count > 0 ? h("button", { className: "ch-chip", onClick: exportMarkdown }, "导出") : null,
-					h("span", { className: "ch-count" },
-						module === "text" ? shownTexts.length + " 份文本" : count + " 个模块"),
+					/* 最右：计数 → 搜索框 → 展示方式（点出气泡选 按任务/平铺） */
+					h("div", { className: "ch-right" },
+						h("span", { className: "ch-count" },
+							module === "text" ? shownTexts.length + " 份文本" : count + " 个模块"),
+						h("input", {
+							className: "ch-input",
+							placeholder: module === "text" ? "搜索文本" : "搜索标题 / 文件名 / 语言",
+							value: query,
+							onChange: (e) => setQuery(e.target.value),
+							style: { minWidth: "140px" },
+						}),
+						module === "code"
+							? h("div", { className: "ch-view" },
+								h("button", {
+									className: "ch-icon",
+									"data-on": viewMenuOpen ? "1" : "0",
+									title: layout === "task" ? "展示方式：按任务（点开可选平铺）" : "展示方式：平铺（点开可选按任务）",
+									onClick: (e) => {
+										e.stopPropagation();
+										setViewMenuOpen(!viewMenuOpen);
+									},
+								},
+									h("svg", { width: 16, height: 16, viewBox: "0 0 16 16", fill: "none" },
+										h("path", { d: "M2 4.2h12M2 8h12M2 11.8h12", stroke: "currentColor", "stroke-width": "1.3", "stroke-linecap": "round" }),
+									),
+								),
+								viewMenuOpen
+									? h("div", { className: "ch-pop" },
+										h("button", {
+											"data-on": layout === "task" ? "1" : "0",
+											onClick: (e) => {
+												e.stopPropagation();
+												setLayout("task");
+												setViewMenuOpen(false);
+											},
+										}, "按任务"),
+										h("button", {
+											"data-on": layout === "flat" ? "1" : "0",
+											onClick: (e) => {
+												e.stopPropagation();
+												setLayout("flat");
+												setViewMenuOpen(false);
+											},
+										}, "平铺"),
+									)
+									: null,
+							)
+							: null,
+					),
 				),
 				hiddenNow > 0
 					? h("div", { className: "ch-hint" },
@@ -1503,7 +1650,7 @@ font-size:13px;line-height:1.75;color:var(--dsw-alias-label-primary);background:
 					? shownTexts.length === 0
 						? h("div", { className: "ch-empty" }, "还没有文本成品",
 							h("div", { className: "ch-sub" }, "写得够长的正文、或写成文件的文字才会出现在这里；同一段反复改只留最后一版"))
-						: h("div", { className: "ch-text-list" }, shownTexts.map((item) => h(TextCard, {
+						: h("div", { className: "ch-grid" }, shownTexts.map((item) => h(TextCard, {
 								key: item.id,
 								item,
 								open: openText === item.id,
@@ -1515,7 +1662,17 @@ font-size:13px;line-height:1.75;color:var(--dsw-alias-label-primary);background:
 					? h("div", { className: "ch-empty" }, "这个会话还没有代码记录",
 						h("div", { className: "ch-sub" }, "轨迹 " + trajKey + " 条｜消息 " + chatKey + " 条"))
 					: tab === "answers"
-						? h("div", { className: "ch-grid" }, shownAnswers.map((item, i) => h(Tile, { key: "a" + i, item })))
+						? layout === "task"
+							? h("div", { className: "ch-list" }, answerGroups.map((group) =>
+								h("section", { key: group.turn, className: "ch-group" },
+									h("header", { className: "ch-group-head" },
+										h("span", { className: "ch-group-title" }, group.title),
+										h("span", null, group.items.length + " 段"),
+									),
+									h("div", { className: "ch-grid" }, group.items.map((item, i) => h(Tile, { key: "a" + group.turn + "-" + i, item }))),
+								),
+							))
+							: h("div", { className: "ch-grid" }, shownAnswers.map((item, i) => h(Tile, { key: "a" + i, item })))
 						: layout === "flat"
 							? h("div", { className: "ch-grid" }, flat.map((item, i) => h(Tile, { key: "f" + i, item, groupName: item.turn ? "任务 " + item.turn : "" })))
 							: h("div", { className: "ch-list" }, shownTasks.map((task) =>
