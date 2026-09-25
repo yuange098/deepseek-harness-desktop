@@ -33,6 +33,18 @@
 **Skill 打通**
 - 把 Codex 的 skills 清单化、规划、junction 软链进 DSH 的 `home/skills`，并写校验脚本确认链接没坏（`tools/skills/`）。
 
+**新插件 `dsh-session-tools`（删除对话）**
+- 需求：给每个对话一个删除入口，删前弹窗警告"不能恢复"，确认后清掉该对话的全部记录数据。
+- 发现：官方客户端 API 里**没有**删除会话的方法（只有 create/rename/archive/list…），
+  workspace 侧只有"删整个工作区"，所以删除只能落到文件系统。
+- 实现：会话行悬停出现垃圾桶按钮（塞进官方 `rowActions` 槽位）→ 确认弹窗 →
+  `preload` 暴露的 `window.dshDesktop.deleteSession` → IPC → 桌面壳按 id 精准删数据。
+- 删除范围（实测定位）：`home/sessions/<工作区>/<会话id>/`、`home/storages/session_projcache/sessions/<id>.json`，
+  并从 `home/storages/workspace.json` 摘掉登记；内容寻址的共享附件库不动。
+- 安全：id 必须 UUID 形态、每个目标做包含性校验（拒绝路径穿越）、原子写登记表；
+  删除逻辑拆成纯 Node 模块 `desktop/src/session-store.js`，配 9 项单元测试（`tools/publish/test-session-store.js`）。
+- 验收：UI 探针确认"按钮在位 / 弹窗含无法恢复文案 / 取消不删 / preload→IPC→删除模块链路 dry-run 通过"。
+
 **右侧面板：从"改按钮"到"改容器"（本日最后一段）**
 - 误把"容器太大"理解成"按钮太大" → 先把按钮压到 36px 高，用户指出方向错了。
 - 取证后确认：面板宽度由 app 自己的布局状态决定（`--dsh-sidebar-width` + 占位列 `rightbarCol` + 拖拽把手）。

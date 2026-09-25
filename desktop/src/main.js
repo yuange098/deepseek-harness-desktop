@@ -12,6 +12,7 @@
 const {
   app,
   BrowserWindow,
+  ipcMain,
   Menu,
   Tray,
   shell,
@@ -26,6 +27,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const net = require('node:net');
 const path = require('node:path');
+const { deleteSessionData, planSessionDeletion } = require('./session-store.js');
 
 const DSH_BIN_RELATIVE = path.join('core', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
 const URL_PATTERN = /dsh web:\s+(http\S+)/;
@@ -399,6 +401,7 @@ function ensureMainWindow(url) {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: path.join(__dirname, 'preload.js'),
       spellcheck: false,
       backgroundThrottling: false,
       // 隐藏状态下也先把首帧画好，这样 show() 时画面已经就绪
@@ -897,6 +900,33 @@ async function checkForUpdates() {
  * 先弹小启动窗，等本地服务就绪后关掉它、打开主窗口；
  * 失败时弹对话框给出重试 / 打开日志 / 退出。
  */
+/**
+ * 会话删除的 IPC：插件里的「删除对话」按钮 → 主进程 → 按 session id 精准删数据。
+ * 只开两个动作、参数只有 sessionId，真正的路径校验在 session-store.js 里做
+ * （任何越界路径都会被拒绝，不会误删别的文件）。
+ */
+function registerSessionIpc() {
+  ipcMain.handle('dsh:plan-delete-session', async (_event, sessionId) => {
+    try {
+      return await planSessionDeletion(config.home, sessionId);
+    } catch (error) {
+      return { ok: false, error: String((error && error.message) || error) };
+    }
+  });
+  ipcMain.handle('dsh:delete-session', async (_event, sessionId) => {
+    try {
+      const result = await deleteSessionData(config.home, sessionId);
+      appendLog(
+        `[desktop] delete session ${sessionId}: ok=${result.ok} removed=${(result.removed || []).length}`,
+      );
+      return result;
+    } catch (error) {
+      appendLog(`[desktop] delete session ${sessionId} failed: ${String((error && error.message) || error)}`);
+      return { ok: false, error: String((error && error.message) || error) };
+    }
+  });
+}
+
 /** 启动流程本体（只允许同时跑一个：重复调用会复用同一个 Promise）。 */
 function loadApp() {
   if (appLoadPromise) return appLoadPromise;
@@ -976,6 +1006,7 @@ if (process.argv.includes('--check-updates')) {
     config = loadConfig();
     ensureDirs();
     app.setAppUserModelId('com.deepseek.harness.desktop');
+    registerSessionIpc();
     // 每次启动清一次 HTTP 缓存：插件（例如主题）改版后界面不会卡在旧样式上。
     try {
       await session.defaultSession.clearCache();

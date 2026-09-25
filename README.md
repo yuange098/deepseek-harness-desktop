@@ -1,6 +1,6 @@
 # DeepSeek Harness 桌面版（Windows）
 
-把只提供网页版的 [DeepSeek Harness](https://www.deepseek.com/harness/)（下称 DSH）**封装成一个双击就能用的 Windows 桌面软件**，并附带两个自己写的 DSH 插件：官网风格主题、代码归档页签。
+把只提供网页版的 [DeepSeek Harness](https://www.deepseek.com/harness/)（下称 DSH）**封装成一个双击就能用的 Windows 桌面软件**，并附带三个自己写的 DSH 插件：官网风格主题、代码归档页签、删除对话。
 
 ![主界面](docs/images/main-window.png)
 
@@ -47,6 +47,19 @@ DSH 官方目前只有 Web 版：每次使用都要打开浏览器、输入地�
 | 一键复制 | 整体复制 / 选择性复制；也支持导出 Markdown |
 | 按任务合并 | 同一任务的多段代码可合并成**一份能直接运行**的版本（import 去重、同名函数取最后一次） |
 | 性能 | 原始类型订阅 + 500ms 防抖 + 跳过 reasoning 大文本；一次长会话的可视化任务从"点一下卡半天"改成秒开 |
+
+### 4. 插件 `dsh-session-tools` —— 删除对话（不可恢复）
+
+给左侧会话列表的每一行加了**垃圾桶按钮**（鼠标悬停时出现，和官方自带的重命名/归档按钮并排），点它弹出确认框，确认后删掉这个对话的**全部记录数据**。
+
+| 要点 | 说明 |
+| --- | --- |
+| 为什么要单独做 | 官方客户端 API 里**没有**删除会话的方法（只有 `create` / `rename` / `archive` / `list` …），所以这件事只能在桌面壳这一层做 |
+| 删除链路 | 页面按钮 → preload（`window.dshDesktop.deleteSession`）→ IPC → 桌面壳按 id 精准删数据 → 刷新列表 |
+| 删除范围 | `home/sessions/<工作区>/<会话id>/`（对话记录本体）、`home/storages/session_projcache/sessions/<id>.json`（投影缓存），并把该 id 从 `home/storages/workspace.json` 的登记里摘掉 |
+| 二次确认 | 弹窗写明「删除后无法恢复」，并列出会被清掉的内容；默认焦点在「取消」，Esc 也关 |
+| 安全设计 | id 必须是 UUID 形态；每个删除目标都做**包含性校验**（拒绝路径穿越）；`home/attachments` 是内容寻址的共享附件库，**不随单个对话删除**（否则会连带其它对话）；删除逻辑有 9 项单元测试 |
+| 非桌面环境 | 在浏览器里打开时会明确提示「请用桌面版操作」，不会静默失败 |
 
 ## 三、截图
 
@@ -137,7 +150,8 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1
 │  └─ package.json
 ├─ plugins/
 │  ├─ dsh-harness-site/         # 主题 + 界面微调（别名 token 覆盖 + 运行时 CSS）
-│  └─ dsh-code-history/         # 「代码」页签
+│  ├─ dsh-code-history/         # 「代码」页签
+│  └─ dsh-session-tools/        # 会话行「删除对话」按钮
 ├─ docs/
 │  ├─ 使用说明.md               # 面向使用者的说明书
 │  ├─ 模块说明.md               # 面向开发者的实现细节与踩坑

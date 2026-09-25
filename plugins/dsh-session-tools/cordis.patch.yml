@@ -1,0 +1,5 @@
+# 「删除对话」插件：host 侧只需要一行 loader 注册。
+# 界面（按钮 + 确认弹窗）在浏览器半边，真正的删除动作由桌面壳（Electron 主进程）执行。
+- insert:
+    - id: session-tools
+      name: 'dsh-session-tools'
