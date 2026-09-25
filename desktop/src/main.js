@@ -932,6 +932,7 @@ function registerSessionIpc() {
       return { ok: false, error: String((error && error.message) || error) };
     }
   });
+  appendLog('[desktop] 会话 IPC 已就绪：describe / plan / delete');
 }
 
 /** 启动流程本体（只允许同时跑一个：重复调用会复用同一个 Promise）。 */
@@ -1012,6 +1013,9 @@ if (process.argv.includes('--check-updates')) {
   app.whenReady().then(async () => {
     config = loadConfig();
     ensureDirs();
+    // 先把日志文件定下来：registerSessionIpc() 会往日志里写一行自检，
+    // 否则这句会落在 logFile 还是 null 的时候、被静默吞掉（踩过）。
+    logFile = currentLogFile();
     app.setAppUserModelId('com.deepseek.harness.desktop');
     registerSessionIpc();
     // 每次启动清一次 HTTP 缓存：插件（例如主题）改版后界面不会卡在旧样式上。
