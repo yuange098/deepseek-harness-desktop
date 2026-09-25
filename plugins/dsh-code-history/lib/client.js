@@ -11,6 +11,77 @@ window.__ModuleLoader__.load({
 		const FENCE = /```([A-Za-z0-9+#._-]*)\r?\n([\s\S]*?)```/g;
 		const LANG_ALIAS = { py: "python", python: "python", js: "javascript", ts: "typescript", sh: "bash", powershell: "pwsh", ps1: "pwsh", r: "r", sql: "sql", json: "json", yaml: "yaml", yml: "yaml", md: "markdown" };
 		const CODE_FILE = /\.(py|js|mjs|cjs|ts|tsx|jsx|r|sql|sh|ps1|bat|ipynb|json|ya?ml|toml|ini|java|cpp|c|cs|go|rs|rb|php|lua|m)$/i;
+		/** 文本/文档类产物：这些归到「文本」模块，不混进代码。 */
+		const DOC_FILE = /\.(md|markdown|txt|text|tex|rst|adoc|org|srt|vtt|csv|tsv|html?|xml|bib|ris)$/i;
+		/** 二进制/容器类产物（写进来说明是"生成的文件"）：只登记名字与体积，不展示内容。 */
+		const BINARY_FILE = /\.(docx?|xlsx?|pptx?|pdf|png|jpe?g|webp|gif|svg|zip|rar|7z|mp[34]|wav|svgz|eps|tiff?|bmp)$/i;
+
+		/**
+		 * 这段代码"能不能直接拿去过一遍"：
+		 *   有导入/主流程/读写数据/绘图 → 大概率是完整脚本；
+		 *   只有几行、又没有任何入口 → 判定为片段（默认不展示）。
+		 * 返回 { complete: boolean, reason: string }。
+		 */
+		function judgeComplete(code, lang) {
+			const text = String(code || "");
+			const n = lines(text);
+			const hasImport = /^\s*(import|from|#include|using |require\(|const .*=\s*require|library\(|import\s+)/m.test(text);
+			const hasMain = /if\s+__name__\s*==|function\s+main\s*\(|^\s*main\s*\(|def\s+main\s*\(|public\s+static\s+void\s+main|<\s*script/im.test(text);
+			const hasIo = /(read_csv|read_excel|open\(|readFile|writeFile|to_csv|to_excel|savefig|plt\.|fig\.|ggsave|write\.table|fwrite|read\.csv|pd\.read|np\.load|json\.dump|json\.load)/i.test(text);
+			const hasDef = /^\s*(def|class|function|func)\s+\w+/m.test(text);
+			if (hasMain) return { complete: true, reason: "有主流程" };
+			if (hasIo && (hasImport || n >= 10)) return { complete: true, reason: "读写数据/绘图" };
+			if (hasImport && n >= 12) return { complete: true, reason: "完整脚本" };
+			if (n >= 20) return { complete: true, reason: "内容成篇" };
+			if (hasDef && n >= 8) return { complete: false, reason: "单个函数/片段" };
+			return { complete: false, reason: "片段" };
+		}
+
+		/** 文本相似度（2-gram Jaccard）：用来判断"这是同一段的第 N 版"。 */
+		function similarText(a, b) {
+			const grams = (text) => {
+				const clean = String(text || "").replace(/\s+/g, "");
+				const set = new Set();
+				for (let i = 0; i < clean.length - 1; i += 1) set.add(clean.slice(i, i + 2));
+				return set;
+			};
+			const A = grams(a);
+			const B = grams(b);
+			if (A.size === 0 || B.size === 0) return 0;
+			let inter = 0;
+			for (const g of A) if (B.has(g)) inter += 1;
+			return inter / (A.size + B.size - inter);
+		}
+
+		/** 文本成品的标题：优先取首个 markdown 标题，其次第一行前 24 字。 */
+		function textTitleOf(text) {
+			const body = String(text || "").trim();
+			const heading = body.match(/^#{1,4}\s+(.+)$/m);
+			if (heading) return heading[1].trim().slice(0, 30);
+			const first = body.split(/\r?\n/).find((line) => line.trim().length > 0) || "";
+			return first.replace(/^[#>\-*\s]+/, "").trim().slice(0, 30) || "文本片段";
+		}
+
+		/** 文本统计：字数、段数、行数。 */
+		function textStats(text) {
+			const body = String(text || "");
+			const chars = body.replace(/\s+/g, "").length;
+			const paragraphs = body.split(/\n{2,}/).filter((p) => p.trim().length > 0).length;
+			return { chars, paragraphs, lines: lines(body) };
+		}
+
+		/**
+		 * 文本标题归一化：把"（初稿）/（终稿）/第一版/改后/v2"这类版本字样抹掉，
+		 * 好让"同一段的第 N 版"能被认成同一个主题（不同段落标题不同，不会被误并）。
+		 */
+		function normalizeTextTitle(title) {
+			return String(title || "")
+				.replace(/[（(【\[][^)）】\]]*[)）】\]]/g, "")
+				.replace(/(初稿|终稿|定稿|第一版|第二版|第三版|最终版|最新版|修改版|修订版|润色版|改后|润色后|版|v\d+)/gi, "")
+				.replace(/[#>*\s\-—_·:：、。.,，]/g, "")
+				.trim()
+				.toLowerCase();
+		}
 		const UNRUNNABLE = /^[\s\d.,:;!?，。：；、]+$/;
 
 		const isCode = (text) => typeof text === "string" && text.length > 0 && !UNRUNNABLE.test(text);
@@ -243,6 +314,8 @@ window.__ModuleLoader__.load({
 			let pendingPrompt = "";
 			/** 轨迹里的助理正文（带 turn），用它给「回答」页签的代码也补上任务归属。 */
 			const trajAnswers = [];
+			/** 写出的文档 / 生成的文件：同一个路径只留最后一次写入（版本折叠在源头做掉）。 */
+			const docWrites = new Map();
 
 			/** 一次文件写入：路径 + 内容。 */
 			const addWrite = (turn, path, body, time) => {
@@ -276,6 +349,43 @@ window.__ModuleLoader__.load({
 				const bodyKey = keys.find((k) => /^(content|file_?text|new_?str(ing)?|text|code|source)$/i.test(k));
 				if (!pathKey || !bodyKey) return;
 				addWrite(turn, obj[pathKey], obj[bodyKey], time);
+				addDoc(turn, obj[pathKey], obj[bodyKey], time);
+			};
+
+			/**
+			 * 文档 / 文件的写入：代码进「代码」模块，这里只管文本与生成的文件。
+			 * 同一路径后写覆盖先写 —— 用户在文本里看到的永远是最新一版。
+			 */
+			const addDoc = (turn, path, body, time) => {
+				if (typeof path !== "string") return;
+				const name = baseName(path);
+				if (DOC_FILE.test(path)) {
+					if (typeof body !== "string" || body.trim().length < 30) return;
+					const key = path.toLowerCase();
+					const before = docWrites.get(key);
+					docWrites.set(key, {
+						path,
+						name,
+						text: body,
+						time: time || 0,
+						turn,
+						kind: "text",
+						// 同一文件写了几次就在卡片上标"共 N 版"，但内容只留最后一次
+						versions: (before && before.versions ? before.versions : 0) + 1,
+					});
+					return;
+				}
+				if (BINARY_FILE.test(path)) {
+					docWrites.set(path.toLowerCase(), {
+						path,
+						name,
+						text: "",
+						bytes: typeof body === "string" ? body.length : 0,
+						time: time || 0,
+						turn,
+						kind: "file",
+					});
+				}
 			};
 
 			/** 从字符串里认：① JSON 形式的工具参数 ② 带围栏的代码。 */
@@ -432,13 +542,87 @@ window.__ModuleLoader__.load({
 					prompt: task.prompt || "",
 					modules: [...task.modules.values()]
 						.sort((a, b) => b.order - a.order)
-						.map((item) => ({ ...item, status: task.failed ? "err" : task.hadResult ? "ok" : "idle" })),
+						.map((item) => ({
+							...item,
+							status: task.failed ? "err" : task.hadResult ? "ok" : "idle",
+							...judgeComplete(item.code, item.lang),
+						})),
 				}))
 				.sort((a, b) => b.turn - a.turn);
+			// —— 文本模块：① 写出的文档文件（同路径只留最后一版）② 回答正文（每轮只留最后一段）
+			const textItems = [];
+			for (const entry of docWrites.values()) {
+				const stats = textStats(entry.text || "");
+				textItems.push({
+					id: "f:" + String(entry.path).toLowerCase(),
+					kind: entry.kind,
+					source: "文件",
+					title: entry.name,
+					path: entry.path,
+					text: entry.text || "",
+					bytes: entry.bytes || 0,
+					time: entry.time || 0,
+					turn: entry.turn || 0,
+					versions: entry.versions || 1,
+					...stats,
+				});
+			}
+			// 同一轮里助理可能说了好几段，只取最后一段（前面的多是"我来看看…"这类过程话）
+			const lastTextByTurn = new Map();
+			for (const entry of trajAnswers) {
+				const body = String(entry.text || "").trim();
+				if (!body) continue;
+				lastTextByTurn.set(entry.turn, { turn: entry.turn, text: body, time: entry.time });
+			}
+			for (const entry of lastTextByTurn.values()) {
+				const stats = textStats(entry.text);
+				// 只把"成篇"的当成品：够长、或有 markdown 标题、或分了好几段
+				const deliverable = stats.chars >= 120 || /^#{1,4}\s/m.test(entry.text) || stats.paragraphs >= 3;
+				if (!deliverable) continue;
+				textItems.push({
+					id: "a:" + entry.turn,
+					kind: "text",
+					source: "回答",
+					title: textTitleOf(entry.text),
+					path: "",
+					text: entry.text,
+					time: entry.time || 0,
+					turn: entry.turn || 0,
+					versions: 1,
+					...stats,
+				});
+			}
+			/*
+			 * 版本折叠：同一段内容被反复修改时，只保留最后一次（前面几版不显示，只记"共 N 版"）。
+			 * 判定用 2-gram 相似度：≥0.55 认为是同一段的新版本；不同段落内容差异大，不会被误并。
+			 */
+			const mergedTexts = [];
+			for (const item of textItems.sort((a, b) => (a.time || 0) - (b.time || 0))) {
+				const itemKey = normalizeTextTitle(item.title);
+				const prev = mergedTexts.find((other) => other.kind === item.kind && other.source === item.source
+					&& (item.path && other.path ? other.path.toLowerCase() === item.path.toLowerCase() : true)
+					&& (
+						(itemKey && itemKey === normalizeTextTitle(other.title))   // 同一主题（如"引言"的初稿/终稿）
+						|| similarText(other.text, item.text) >= 0.5               // 或内容明显是同一段
+					));
+				if (prev) {
+					prev.text = item.text;
+					prev.chars = item.chars;
+					prev.paragraphs = item.paragraphs;
+					prev.lines = item.lines;
+					prev.time = item.time;
+					prev.turn = item.turn;
+					prev.versions = (prev.versions || 1) + 1;
+					if (item.source === "回答") prev.title = item.title;
+					continue;
+				}
+				mergedTexts.push(item);
+			}
 			return {
 				tasks: taskList,
 				total: taskList.reduce((count, task) => count + task.modules.length, 0),
-				answers: [...unique.values()].reverse(),
+				answers: [...unique.values()].map((item) => ({ ...item, ...judgeComplete(item.code, item.lang) })).reverse(),
+				texts: mergedTexts.sort((a, b) => (b.time || 0) - (a.time || 0)),
 				images,
 			};
 		}
@@ -582,6 +766,14 @@ window.__ModuleLoader__.load({
 .ch-busy{font-size:12px;color:var(--dsw-alias-label-tertiary)}
 .ch-hint{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dsw-alias-label-tertiary);
 border:.5px dashed var(--dsw-alias-border-l2);border-radius:10px;padding:6px 10px}
+.ch-text-list{display:flex;flex-direction:column;gap:10px}
+.ch-text{border:.5px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-settings-card-fill);border-radius:12px;overflow:hidden}
+.ch-text-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;background:var(--dsw-alias-bg-layer-1);border-bottom:.5px solid var(--dsw-alias-border-l1)}
+.ch-text-title{font-size:13.5px;font-weight:600;color:var(--dsw-alias-label-primary)}
+.ch-text-meta{font-size:11.5px;color:var(--dsw-alias-label-tertiary);margin-left:auto}
+.ch-text-body{margin:0;padding:10px 14px;max-height:340px;overflow:auto;white-space:pre-wrap;word-break:break-word;
+font-size:13px;line-height:1.75;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2)}
+.ch-tag-hi{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
 `;
 		/** 新版视图：按任务分组 / 平铺可切换，带语言标注与过滤。 */
 		function CodeView2(props) {
@@ -967,6 +1159,27 @@ border:.5px dashed var(--dsw-alias-border-l2);border-radius:10px;padding:6px 10p
 			}, []);
 		}
 		/** 网格视图：一排 2~4 个圆角卡片，点击展开。 */
+		/**
+		 * 文本成品卡片：标题 + 来源 + 版本 + 字数；超长默认只显示开头，展开看全文、可整段复制。
+		 * 同一段反复修改过的，这里已经是最后一版（历史版本只在计数里体现，不铺开）。
+		 */
+		function TextCard({ item, open, copied, onToggle, onCopy }) {
+			const preview = String(item.text || "");
+			const clipped = preview.length > 420;
+			const body = open || !clipped ? preview : preview.slice(0, 420) + "\n…";
+			return h("article", { className: "ch-text" },
+				h("header", { className: "ch-text-head" },
+					h("span", { className: "ch-text-title" }, item.title || "文本"),
+					h("span", { className: "ch-tag" }, item.source === "文件" ? "文件" : "回答"),
+					item.versions > 1 ? h("span", { className: "ch-tag ch-tag-hi" }, "共 " + item.versions + " 版 · 只留最新") : null,
+					h("span", { className: "ch-text-meta" }, item.chars + " 字 · " + item.paragraphs + " 段"),
+					h("button", { className: "ch-btn", onClick: onCopy }, copied ? "已复制" : "复制"),
+					clipped ? h("button", { className: "ch-btn", onClick: onToggle }, open ? "收起" : "展开全文") : null,
+				),
+				h("pre", { className: "ch-text-body" }, body),
+			);
+		}
+
 		function CodeView3(props) {
 			const trajRef = react.useRef(null);
 			const chatRef = react.useRef(null);
@@ -990,6 +1203,12 @@ border:.5px dashed var(--dsw-alias-border-l2);border-radius:10px;padding:6px 10p
 			const [query, setQuery] = react.useState("");
 			// 默认只显示"代码/数据/图表"任务；写文章、润色、翻译这类文字任务里产生的代码默认折叠
 			const [includeText, setIncludeText] = react.useState(false);
+			// 顶层两个模块：代码（完整可运行）/ 文本（最终成品）
+			const [module, setModule] = react.useState("code");
+			// 片段（几行、没有入口的代码）默认不展示
+			const [includeFragments, setIncludeFragments] = react.useState(false);
+			// 每个任务默认只摊开"完整代码"，过程文件收起来
+			const [openTasks, setOpenTasks] = react.useState(() => new Set());
 			useHideComposer();
 			react.useEffect(() => {
 				setBusy(true);
@@ -1011,10 +1230,18 @@ border:.5px dashed var(--dsw-alias-border-l2);border-radius:10px;padding:6px 10p
 				const text = (titleOf(item) + " " + (item.name || "") + " " + item.lang + " " + previewOf(item.code)).toLowerCase();
 				return text.includes(query.trim().toLowerCase());
 			};
+			/** 完整代码优先；片段只在打开「含片段」时出现。 */
+			const keepCode = (item) => includeFragments || item.complete !== false;
 			const tasks = data.tasks
-				.map((task) => ({ ...task, modules: task.modules.filter(hit) }))
+				.map((task) => ({
+					...task,
+					modules: task.modules
+						.filter(hit)
+						.filter(keepCode)
+						.sort((a, b) => (Number(b.complete) - Number(a.complete)) || (b.order - a.order)),
+				}))
 				.filter((task) => task.modules.length > 0);
-			const answers = data.answers.filter(hit);
+			const answers = data.answers.filter(hit).filter(keepCode);
 			/*
 			 * 任务意图过滤：文字类任务（写文章/润色/翻译/整理文档…）里出现的代码只是过程副产品，
 			 * 默认不展示；代码类任务（问代码、处理数据、绘图…）照常展示。
@@ -1034,10 +1261,48 @@ border:.5px dashed var(--dsw-alias-border-l2);border-radius:10px;padding:6px 10p
 			const hiddenTotal = textTasks.reduce((n, task) => n + task.modules.length, 0)
 				+ answers.filter(isTextAnswer).length;
 			const count = tab === "executed" ? flat.length : shownAnswers.length;
+			// —— 文本模块：只列最终成品（同段反复改过的话，这里是最新一版）——
+			const texts = data.texts || [];
+			const shownTexts = texts.filter((item) => {
+				if (!query.trim()) return true;
+				const hay = (item.title + " " + (item.path || "") + " " + item.text.slice(0, 400)).toLowerCase();
+				return hay.includes(query.trim().toLowerCase());
+			});
+			const [openText, setOpenText] = react.useState("");
+			const [openVersionOf, setOpenVersionOf] = react.useState("");
+			const [copied, setCopied] = react.useState("");
+
+			/** 复制纯文本（文本模块用）。 */
+			const copyPlain = (text, label) => {
+				try {
+					navigator.clipboard.writeText(String(text || ""));
+					setCopied(label);
+					setTimeout(() => setCopied(""), 1200);
+				} catch {
+					/* 剪贴板不可用就算了 */
+				}
+			};
 			// 导出当前页签为 Markdown（浏览器直接下载）
 			const exportMarkdown = () => {
 				const blocks = [];
-				blocks.push("# 代码历史", "");
+				blocks.push(module === "text" ? "# 文本成品" : "# 代码历史", "");
+				if (module === "text") {
+					for (const item of shownTexts) {
+						blocks.push(`## ${item.title}（${item.source}${item.versions > 1 ? ` · 共 ${item.versions} 版，只留最新` : ""} · ${item.chars} 字）`, "", item.text, "", "---", "");
+					}
+					const text = blocks.join("\n");
+					try {
+						const url = URL.createObjectURL(new Blob([text], { type: "text/markdown" }));
+						const a = document.createElement("a");
+						a.href = url;
+						a.download = "文本成品.md";
+						a.click();
+						setTimeout(() => URL.revokeObjectURL(url), 4000);
+					} catch {
+						copyPlain(text, "export");
+					}
+					return;
+				}
 				if (tab === "executed") {
 					for (const task of shownTasks) {
 						blocks.push(`## 任务 ${task.turn || "-"}`, "");
@@ -1087,17 +1352,23 @@ border:.5px dashed var(--dsw-alias-border-l2);border-radius:10px;padding:6px 10p
 				h("style", null, GRID_CSS),
 				h("div", { className: "ch-head" },
 					h("div", { className: "ch-seg" },
-						h("button", { "data-on": tab === "executed" ? "1" : "0", onClick: () => setTab("executed") }, "执行"),
-						h("button", { "data-on": tab === "answers" ? "1" : "0", onClick: () => setTab("answers") }, "回答"),
+						h("button", { "data-on": module === "code" ? "1" : "0", onClick: () => setModule("code") }, "代码"),
+						h("button", { "data-on": module === "text" ? "1" : "0", onClick: () => setModule("text") }, "文本"),
 					),
-					tab === "executed"
+					module === "code"
+						? h("div", { className: "ch-seg" },
+							h("button", { "data-on": tab === "executed" ? "1" : "0", onClick: () => setTab("executed") }, "执行"),
+							h("button", { "data-on": tab === "answers" ? "1" : "0", onClick: () => setTab("answers") }, "回答"),
+						)
+						: null,
+					module === "code" && tab === "executed"
 						? h("div", { className: "ch-seg" },
 							h("button", { "data-on": layout === "task" ? "1" : "0", onClick: () => setLayout("task") }, "按任务"),
 							h("button", { "data-on": layout === "flat" ? "1" : "0", onClick: () => setLayout("flat") }, "平铺"),
 						)
 						: null,
 					busy ? h("span", { className: "ch-busy" }, "解析中…") : null,
-					tab === "answers" && data.answers.length > 1
+					module === "code" && tab === "answers" && data.answers.length > 1
 						? h("button", { className: "ch-chip", onClick: mergeAnswers }, "合并成可运行版本")
 						: null,
 					h("input", {
@@ -1115,8 +1386,17 @@ border:.5px dashed var(--dsw-alias-border-l2);border-radius:10px;padding:6px 10p
 								onClick: () => setIncludeText(!includeText),
 							}, includeText ? "含文字任务 ✓" : "含文字任务")
 						: null,
+					module === "code" && data.tasks.some((t) => t.modules.some((m) => m.complete === false))
+						? h("button", {
+								className: "ch-chip",
+								"data-on": includeFragments ? "1" : "0",
+								title: "只有几行、没有入口的代码片段（例如报错示例、单行改法）默认不展示；点这里可以显示",
+								onClick: () => setIncludeFragments(!includeFragments),
+							}, includeFragments ? "含片段 ✓" : "含片段")
+						: null,
 					count > 0 ? h("button", { className: "ch-chip", onClick: exportMarkdown }, "导出") : null,
-					h("span", { className: "ch-count" }, count + " 个模块"),
+					h("span", { className: "ch-count" },
+						module === "text" ? shownTexts.length + " 份文本" : count + " 个模块"),
 				),
 				hiddenNow > 0
 					? h("div", { className: "ch-hint" },
@@ -1132,7 +1412,19 @@ border:.5px dashed var(--dsw-alias-border-l2);border-radius:10px;padding:6px 10p
 						h(Tile, { key: "merged", item: { ...merged, isMain: true }, groupName: "合并结果" }),
 					)
 					: null,
-				count === 0
+				module === "text"
+					? shownTexts.length === 0
+						? h("div", { className: "ch-empty" }, "还没有文本成品",
+							h("div", { className: "ch-sub" }, "写得够长的正文、或写成文件的文字才会出现在这里；同一段反复改只留最后一版"))
+						: h("div", { className: "ch-text-list" }, shownTexts.map((item) => h(TextCard, {
+								key: item.id,
+								item,
+								open: openText === item.id,
+								copied: copied === item.id,
+								onToggle: () => setOpenText(openText === item.id ? "" : item.id),
+								onCopy: () => copyPlain((item.title ? item.title + "\n\n" : "") + item.text, item.id),
+							})))
+					: count === 0
 					? h("div", { className: "ch-empty" }, "这个会话还没有代码记录",
 						h("div", { className: "ch-sub" }, "轨迹 " + trajKey + " 条｜消息 " + chatKey + " 条"))
 					: tab === "answers"
@@ -1144,9 +1436,25 @@ border:.5px dashed var(--dsw-alias-border-l2);border-radius:10px;padding:6px 10p
 									h("header", { className: "ch-group-head" },
 										h("span", { className: "ch-group-title" }, task.turn ? "任务 " + task.turn : "未标记任务"),
 										task.intent === "text" ? h("span", { className: "ch-tag" }, "文字任务") : null,
-										h("span", null, task.modules.length + " 个模块"),
+										h("span", null, task.modules.length + " 个文件"),
+										task.modules[0] ? h("span", { className: "ch-main" }, task.modules[0].complete ? "完整代码" + (task.modules[0].reason ? "（" + task.modules[0].reason + "）" : "") : "片段") : null,
 									),
-									h("div", { className: "ch-grid" }, task.modules.map((item, i) => h(Tile, { key: task.turn + "-" + i, item, groupName: i === 0 ? "主文件" : "过程文件" }))),
+									h("div", { className: "ch-grid" }, h(Tile, { key: task.turn + "-0", item: task.modules[0], groupName: task.modules[0].complete ? "完整代码" : "片段" })),
+									task.modules.length > 1
+										? h("button", {
+												className: "ch-btn",
+												onClick: () => setOpenTasks((prev) => {
+													const next = new Set(prev);
+													if (next.has(task.turn)) next.delete(task.turn);
+													else next.add(task.turn);
+													return next;
+												}),
+											},
+											(openTasks.has(task.turn) ? "收起过程文件（" : "过程文件（") + (task.modules.length - 1) + "）")
+										: null,
+									openTasks.has(task.turn) && task.modules.length > 1
+										? h("div", { className: "ch-grid" }, task.modules.slice(1).map((item, i) => h(Tile, { key: task.turn + "-p" + i, item, groupName: "过程文件" })))
+										: null,
 								),
 							)),
 			);
@@ -1160,7 +1468,7 @@ border:.5px dashed var(--dsw-alias-border-l2);border-radius:10px;padding:6px 10p
 			}
 			ctx.slots.inject("conversation.view", () =>
 				ctx.slots.register(
-					{ name: "conversation.view", id: "code", order: 30, label: "代码" },
+					{ name: "conversation.view", id: "code", order: 30, label: "代码和文本" },
 					(props) => h(CodeView3, { ...props, ctx }),
 				),
 			);
