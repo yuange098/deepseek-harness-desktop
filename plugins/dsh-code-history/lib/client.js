@@ -669,7 +669,14 @@ window.__ModuleLoader__.load({
 		// ---------------------------------------------------------------- 界面
 		const CSS = `
 .ch-root{display:flex;flex-direction:column;gap:10px;padding:14px 16px 24px;height:100%;box-sizing:border-box;color:var(--dsw-alias-label-primary);overflow:auto}
-.ch-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+/* 工具栏分两行：第一行 代码/文本 + 右侧（计数·搜索·展示方式）；第二行 类型 + 导出。
+   用 grid 定位，不挤在一排，也不用改 DOM 顺序。 */
+.ch-head{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px 12px;align-items:center}
+.ch-head>.ch-seg{grid-column:1;grid-row:1}
+.ch-head>.ch-right{grid-column:2;grid-row:1;justify-self:end}
+.ch-head>.ch-type{grid-column:1;grid-row:2}
+.ch-head>.ch-icon{grid-column:2;grid-row:2;justify-self:start}
+.ch-head>.ch-busy{grid-column:2;grid-row:2;justify-self:start}
 .ch-seg{display:inline-flex;background:var(--dsw-alias-bg-layer-2);border:.5px solid var(--dsw-alias-border-l2);border-radius:10px;padding:2px}
 .ch-seg>button{border:none;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;padding:5px 12px;border-radius:8px;cursor:pointer}
 .ch-seg>button[data-on="1"]{background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground)}
@@ -1002,23 +1009,30 @@ font-size:13px;line-height:1.75;color:var(--dsw-alias-label-primary);background:
 .ch-right>.ch-input{order:2;flex:0 0 auto}
 .ch-right>.ch-view{order:3}
 .ch-view{position:relative;display:inline-flex;flex:0 0 auto;width:26px;justify-content:center}
-.ch-icon{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;
-border:.5px solid var(--dsw-alias-border-l3);background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;padding:0}
-.ch-icon:hover{background:var(--dsw-alias-interactive-bg-hover)}
+/* 所有小按钮统一成一套：圆角 10、描边、悬停有底；不再出现"灰底白字"的割裂感 */
+.ch-icon{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:30px;min-width:30px;padding:0 9px;
+border-radius:10px;border:.5px solid var(--dsw-alias-border-l3);background:transparent;
+color:var(--dsw-alias-label-secondary);font:inherit;font-size:12.5px;cursor:pointer}
+.ch-icon:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .ch-icon[data-on="1"]{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
-.ch-pop{position:absolute;right:0;top:32px;z-index:20;display:flex;flex-direction:column;gap:2px;min-width:104px;
-border:.5px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-settings-card-fill,#fff);
-box-shadow:0 8px 24px rgba(0,0,0,.18);padding:4px}
-.ch-pop>button{border:none;background:transparent;text-align:left;font:inherit;font-size:12.5px;padding:6px 10px;
-border-radius:7px;cursor:pointer;color:var(--dsw-alias-label-secondary)}
-.ch-pop>button:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.ch-pop>button[data-on="1"]{color:var(--dsw-alias-state-business-primary);font-weight:600}
+/* 气泡：ChatGPT 那种分组面板风格，宽度随内容自适应 */
+.ch-pop{position:absolute;top:calc(100% + 6px);right:0;z-index:30;width:max-content;min-width:200px;max-width:300px;
+padding:8px;border-radius:14px;border:.5px solid var(--dsw-alias-border-l2);
+background:var(--dsw-alias-settings-card-fill,#fff);box-shadow:0 14px 36px rgba(0,0,0,.28);
+display:flex;flex-direction:column;gap:2px}
+.ch-pop>button,.ch-pop-group>button{display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;
+border:none;background:transparent;text-align:left;font:inherit;font-size:13px;color:var(--dsw-alias-label-primary);
+padding:8px 10px;border-radius:9px;cursor:pointer}
+.ch-pop>button:hover,.ch-pop-group>button:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.ch-pop>button[data-on="1"],.ch-pop-group>button[data-on="1"]{color:var(--dsw-alias-state-business-primary);font-weight:600;
+background:var(--dsw-alias-interactive-bg-hover)}
+.ch-pop-sep{height:.5px;background:var(--dsw-alias-border-l2);margin:6px 4px}
 .ch-type{position:relative;display:inline-flex}
 .ch-icon-lg{width:auto;gap:6px;padding:0 10px;height:28px;font-size:12.5px}
 .ch-icon-label{white-space:nowrap}
-.ch-pop-wide{min-width:190px;flex-direction:row;gap:10px;padding:8px}
-.ch-pop-group{display:flex;flex-direction:column;gap:2px;min-width:80px}
-.ch-pop-title{font-size:11px;color:var(--dsw-alias-label-tertiary);padding:2px 8px 4px}
+.ch-pop-wide{min-width:210px}
+.ch-pop-group{display:flex;flex-direction:column;gap:2px}
+.ch-pop-title{font-size:11px;color:var(--dsw-alias-label-tertiary);padding:6px 10px 3px;letter-spacing:.02em}
 .ch-cand{display:flex;align-items:center;gap:8px;border:.5px dashed var(--dsw-alias-border-l2);
 border-radius:12px;padding:10px 12px;cursor:pointer;background:var(--dsw-alias-bg-layer-1)}
 .ch-cand:hover{border-color:var(--dsw-alias-state-business-primary)}
@@ -2173,24 +2187,25 @@ border-radius:12px;padding:10px 12px;cursor:pointer;background:var(--dsw-alias-b
 									h("button", {
 										"data-on": module === "code" && codeType === "all" ? "1" : "0",
 										onClick: () => { setModule("code"); setCodeType("all"); setTypeMenuOpen(false); },
-									}, "全部"),
+									}, (module === "code" && codeType === "all" ? "✓ " : "") + "全部代码"),
 									...codeTypes.map((name) => h("button", {
 										key: name,
 										"data-on": module === "code" && codeType === name ? "1" : "0",
 										onClick: () => { setModule("code"); setCodeType(name); setTypeMenuOpen(false); },
-									}, name === "python" ? "Python ★" : name)),
+									}, (module === "code" && codeType === name ? "✓ " : "") + (name === "python" ? "Python" : name))),
 								),
+								h("div", { className: "ch-pop-sep" }),
 								h("div", { className: "ch-pop-group" },
 									h("div", { className: "ch-pop-title" }, "文本类型"),
 									h("button", {
 										"data-on": module === "text" && textType === "all" ? "1" : "0",
 										onClick: () => { setModule("text"); setTextType("all"); setTypeMenuOpen(false); },
-									}, "全部"),
+									}, (module === "text" && textType === "all" ? "✓ " : "") + "全部文本"),
 									...textTypes.map((name) => h("button", {
 										key: name,
 										"data-on": module === "text" && textType === name ? "1" : "0",
 										onClick: () => { setModule("text"); setTextType(name); setTypeMenuOpen(false); },
-									}, name === "Word" ? "Word ★" : name)),
+									}, (module === "text" && textType === name ? "✓ " : "") + (name === "Word" ? "Word" : name))),
 								),
 							)
 							: null,
@@ -2224,11 +2239,11 @@ border-radius:12px;padding:10px 12px;cursor:pointer;background:var(--dsw-alias-b
 									h("button", {
 										"data-on": layout === "type" ? "1" : "0",
 										onClick: () => { setLayout("type"); setViewMenuOpen(false); },
-									}, "按类型"),
+									}, (layout === "type" ? "✓ " : "") + "按类型分组"),
 									h("button", {
 										"data-on": layout === "flat" ? "1" : "0",
 										onClick: () => { setLayout("flat"); setViewMenuOpen(false); },
-									}, "平铺"),
+									}, (layout === "flat" ? "✓ " : "") + "平铺"),
 								)
 								: null,
 						),
