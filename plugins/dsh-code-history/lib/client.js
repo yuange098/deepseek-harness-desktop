@@ -840,11 +840,13 @@ window.__ModuleLoader__.load({
 		};
 
 		const IMPORT_CSS = `
-.dsh-ch-import{position:absolute;top:6px;right:6px;z-index:5;display:inline-flex;align-items:center;justify-content:center;
+.dsh-ch-import{position:absolute;top:6px;right:40px;z-index:5;display:inline-flex;align-items:center;justify-content:center;
 width:24px;height:24px;border-radius:7px;border:.5px solid var(--dsw-alias-border-l2);
 background:var(--dsw-alias-settings-card-fill,rgba(255,255,255,.9));color:var(--dsw-alias-label-secondary);
 cursor:pointer;opacity:0;transition:opacity .12s ease;padding:0}
 pre:hover>.dsh-ch-import,.dsh-ch-import:focus{opacity:1}
+.dsh-ch-import-inline{position:static;opacity:.55;margin-right:2px}
+*:hover>.dsh-ch-import-inline,pre:hover .dsh-ch-import-inline{opacity:1}
 .dsh-ch-import:hover{color:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary)}
 .dsh-ch-import[data-done="1"]{opacity:1;color:var(--dsw-alias-state-success-primary);border-color:var(--dsw-alias-state-success-primary)}
 .dsh-ch-toast{position:fixed;left:50%;bottom:56px;transform:translate(-50%,12px);z-index:2147482;
@@ -863,8 +865,9 @@ opacity:0;transition:opacity .18s ease,transform .18s ease;pointer-events:none}
 			svg.setAttribute("viewBox", "0 0 16 16");
 			svg.setAttribute("fill", "none");
 			svg.setAttribute("aria-hidden", "true");
+			// 书签 + 加号：表示"收藏/入库"，不再用像下载的箭头
 			const path = document.createElementNS(ns, "path");
-			path.setAttribute("d", "M8 2v7m0 0L5.2 6.3M8 9l2.8-2.7M2.6 11.2v1.6c0 .7.6 1.2 1.3 1.2h8.2c.7 0 1.3-.5 1.3-1.2v-1.6");
+			path.setAttribute("d", "M4.2 2.6h5.1c.6 0 1.1.5 1.1 1.1v9.1L7.5 11 4.6 12.8V3.7c0-.6.5-1.1 1.1-1.1M12.4 4.4v4M10.4 6.4h4");
 			path.setAttribute("stroke", "currentColor");
 			path.setAttribute("stroke-width", "1.3");
 			path.setAttribute("stroke-linecap", "round");
@@ -940,7 +943,18 @@ opacity:0;transition:opacity .18s ease,transform .18s ease;pointer-events:none}
 						event.stopPropagation();
 						void importCodeBlock(pre, button);
 					});
-					pre.appendChild(button);
+					// 尽量和官方的"复制"按钮排在同一行：插到复制按钮前面
+					const wrapper = pre.parentElement || pre;
+					const copyButton = [...wrapper.querySelectorAll("button")].find((b) => {
+						const label = (b.getAttribute("title") || b.getAttribute("aria-label") || "").toLowerCase();
+						return /复制|copy/.test(label);
+					});
+					if (copyButton && copyButton.parentElement) {
+						button.classList.add("dsh-ch-import-inline");
+						copyButton.parentElement.insertBefore(button, copyButton);
+					} else {
+						pre.appendChild(button);
+					}
 				}
 			};
 			inject();
@@ -1955,6 +1969,28 @@ border-radius:12px;padding:10px 12px;cursor:pointer;background:var(--dsw-alias-b
 			);
 		}
 		//#region 「代码和文本」主视图：只显示你自己导入的代码/文本
+		/**
+		 * 兜底：新视图一旦渲染报错，自动退回旧视图（并显示错误原因），
+		 * 不会出现"整块空白"这种没法诊断的情况。
+		 */
+		class SafeView extends react.Component {
+			constructor(props) {
+				super(props);
+				this.state = { error: "" };
+			}
+			static getDerivedStateFromError(error) {
+				return { error: String((error && (error.message || error)) || error) };
+			}
+			componentDidCatch(error, info) {
+				console.error("[code-history] 新视图渲染失败，已退回旧视图：", error, info);
+			}
+			render() {
+				if (this.state.error) {
+					return this.props.fallback(this.state.error);
+				}
+				return this.props.children;
+			}
+		}
 		/** 文本/文件的类型标签：Word 排第一。 */
 		function textKindOf(item) {
 			const p = String((item && (item.path || item.name)) || "").toLowerCase();
@@ -2352,7 +2388,12 @@ border-radius:12px;padding:10px 12px;cursor:pointer;background:var(--dsw-alias-b
 			ctx.slots.inject("conversation.view", () =>
 				ctx.slots.register(
 					{ name: "conversation.view", id: "code", order: 30, label: "代码和文本" },
-					(props) => h(LibraryView, { ...props, ctx }),
+					(props) => h(SafeView, {
+						fallback: (error) => h("div", null,
+							h("div", { className: "ch-hint" }, "新视图渲染失败，已临时退回旧视图 —— 报错：" + error),
+							h(CodeView3, { ...props, ctx }),
+						),
+					}, h(LibraryView, { ...props, ctx })),
 				),
 			);
 		}
