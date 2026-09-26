@@ -2311,69 +2311,56 @@ border-radius:12px;padding:10px 12px;cursor:pointer;background:var(--dsw-alias-b
 						),
 			);
 		}
-		/* 图标：统一 16px 线性风，跟"代码/文本"按钮同一套观感 */
+		/*
+		 * 图标统一 16px 线性风。
+		 * 注意：这里必须返回 **React 元素**（h("svg",…)），不能用 document.createElementNS
+		 * 造原生节点再塞进 h(...) —— 原生 SVG 节点不是合法的 React 子元素，
+		 * 会直接抛 React error #31（"Objects are not valid as a React child"）把整块视图干掉。
+		 * （聊天里那个导入按钮是 appendChild 进真 DOM 的，所以那边用原生节点没问题。）
+		 */
+		const svgIcon = (children, size) =>
+			h("svg", {
+				width: size || 16,
+				height: size || 16,
+				viewBox: "0 0 16 16",
+				fill: "none",
+				"aria-hidden": "true",
+			}, ...(Array.isArray(children) ? children : [children]));
+		const strokeProps = { stroke: "currentColor", strokeWidth: 1.3, strokeLinecap: "round", strokeLinejoin: "round" };
 		function filterIcon() {
-			const ns = "http://www.w3.org/2000/svg";
-			const svg = document.createElementNS(ns, "svg");
-			svg.setAttribute("width", "14"); svg.setAttribute("height", "14");
-			svg.setAttribute("viewBox", "0 0 16 16"); svg.setAttribute("fill", "none");
-			const p = document.createElementNS(ns, "path");
-			p.setAttribute("d", "M2 4h12M4.5 8h7M6.5 12h3");
-			p.setAttribute("stroke", "currentColor"); p.setAttribute("stroke-width", "1.3"); p.setAttribute("stroke-linecap", "round");
-			svg.appendChild(p);
-			return svg;
+			return svgIcon(h("path", { d: "M2 4h12M4.5 8h7M6.5 12h3", ...strokeProps }), 14);
 		}
 		function chevronIcon() {
-			const ns = "http://www.w3.org/2000/svg";
-			const svg = document.createElementNS(ns, "svg");
-			svg.setAttribute("width", "12"); svg.setAttribute("height", "12");
-			svg.setAttribute("viewBox", "0 0 16 16"); svg.setAttribute("fill", "none");
-			const p = document.createElementNS(ns, "path");
-			p.setAttribute("d", "M4.5 6.5L8 10l3.5-3.5");
-			p.setAttribute("stroke", "currentColor"); p.setAttribute("stroke-width", "1.3");
-			p.setAttribute("stroke-linecap", "round"); p.setAttribute("stroke-linejoin", "round");
-			svg.appendChild(p);
-			return svg;
+			return svgIcon(h("path", { d: "M4.5 6.5L8 10l3.5-3.5", ...strokeProps }), 12);
 		}
 		function downloadIcon() {
-			const ns = "http://www.w3.org/2000/svg";
-			const svg = document.createElementNS(ns, "svg");
-			svg.setAttribute("width", "16"); svg.setAttribute("height", "16");
-			svg.setAttribute("viewBox", "0 0 16 16"); svg.setAttribute("fill", "none");
-			const p = document.createElementNS(ns, "path");
-			p.setAttribute("d", "M8 2.6v7.2m0 0L5.3 7.1M8 9.8l2.7-2.7M2.8 12.4h10.4");
-			p.setAttribute("stroke", "currentColor"); p.setAttribute("stroke-width", "1.3");
-			p.setAttribute("stroke-linecap", "round"); p.setAttribute("stroke-linejoin", "round");
-			svg.appendChild(p);
-			return svg;
+			return svgIcon(h("path", { d: "M8 2.6v7.2m0 0L5.3 7.1M8 9.8l2.7-2.7M2.8 12.4h10.4", ...strokeProps }));
 		}
 		function gridIcon() {
-			const ns = "http://www.w3.org/2000/svg";
-			const svg = document.createElementNS(ns, "svg");
-			svg.setAttribute("width", "16"); svg.setAttribute("height", "16");
-			svg.setAttribute("viewBox", "0 0 16 16"); svg.setAttribute("fill", "none");
-			for (const [x, y] of [[2.5, 2.5], [9, 2.5], [2.5, 9], [9, 9]]) {
-				const r = document.createElementNS(ns, "rect");
-				r.setAttribute("x", String(x)); r.setAttribute("y", String(y));
-				r.setAttribute("width", "4.5"); r.setAttribute("height", "4.5"); r.setAttribute("rx", "1.2");
-				r.setAttribute("stroke", "currentColor"); r.setAttribute("stroke-width", "1.2");
-				svg.appendChild(r);
-			}
-			return svg;
+			return svgIcon([[2.5, 2.5], [9, 2.5], [2.5, 9], [9, 9]].map(([x, y], index) =>
+				h("rect", {
+					key: index,
+					x,
+					y,
+					width: 4.5,
+					height: 4.5,
+					rx: 1.2,
+					stroke: "currentColor",
+					strokeWidth: 1.2,
+				})));
 		}
 		function rowsIcon() {
-			const ns = "http://www.w3.org/2000/svg";
-			const svg = document.createElementNS(ns, "svg");
-			svg.setAttribute("width", "16"); svg.setAttribute("height", "16");
-			svg.setAttribute("viewBox", "0 0 16 16"); svg.setAttribute("fill", "none");
-			for (const y of [3, 6.5, 10]) {
-				const r = document.createElementNS(ns, "rect");
-				r.setAttribute("x", "2.5"); r.setAttribute("y", String(y));
-				r.setAttribute("width", "11"); r.setAttribute("height", "2.6"); r.setAttribute("rx", "1");
-				r.setAttribute("stroke", "currentColor"); r.setAttribute("stroke-width", "1.2");
-				svg.appendChild(r);
-			}
-			return svg;
+			return svgIcon([3, 6.5, 10].map((y, index) =>
+				h("rect", {
+					key: index,
+					x: 2.5,
+					y,
+					width: 11,
+					height: 2.6,
+					rx: 1,
+					stroke: "currentColor",
+					strokeWidth: 1.2,
+				})));
 		}
 		//#endregion
 
