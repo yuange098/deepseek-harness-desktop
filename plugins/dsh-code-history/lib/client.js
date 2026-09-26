@@ -1784,6 +1784,9 @@ border-radius:12px;padding:10px 12px;cursor:pointer;background:var(--dsw-alias-b
 			return h("div", { className: "ch-root" },
 				h("style", null, CSS),
 				h("style", null, GRID_CSS),
+				// 这行不能少：工具栏/气泡/卡片那一整套样式都在 EXTRA_CSS 里，
+				// 漏了它就会出现"气泡不浮起来、按钮是默认灰白、字号变大"的丑样子。
+				h("style", null, EXTRA_CSS),
 				h("div", { className: "ch-head" },
 					/* 第一层：代码 / 文本 平级 */
 					h("div", { className: "ch-seg ch-seg-lg" },
