@@ -754,6 +754,206 @@ window.__ModuleLoader__.load({
 		}
 
 		// ---------------------------------------------------------------- 注册
+		//#region 我的仓库：聊天里点「导入」进来的代码/文本（按会话存本机）
+		const LIB_KEY = "dsh-code-history:library";
+		const readLibrary = () => {
+			try {
+				const parsed = JSON.parse(localStorage.getItem(LIB_KEY) || "{}");
+				return parsed && typeof parsed === "object" ? parsed : {};
+			} catch {
+				return {};
+			}
+		};
+		const writeLibrary = (library) => {
+			try {
+				localStorage.setItem(LIB_KEY, JSON.stringify(library));
+			} catch {
+				/* 存储不可用就算了 */
+			}
+		};
+		const currentSessionId = () => {
+			try {
+				const raw = localStorage.getItem("dsh.sessions.current");
+				if (!raw) return "unknown";
+				const parsed = JSON.parse(raw);
+				return (typeof parsed === "string" ? parsed : parsed && parsed.sessionId) || "unknown";
+			} catch {
+				return "unknown";
+			}
+		};
+		const itemId = (text) => {
+			let hash = 0;
+			const body = String(text || "");
+			for (let i = 0; i < body.length; i += 1) hash = (hash * 31 + body.charCodeAt(i)) % 2147483647;
+			return "i" + hash.toString(36) + "-" + body.length.toString(36);
+		};
+		/** 把一段代码/文本存进仓库；同名同内容只存一次。 */
+		const addToLibrary = (kind, entry) => {
+			const library = readLibrary();
+			const session = currentSessionId();
+			const bucket = library[session] || { code: [], text: [] };
+			const list = bucket[kind] || [];
+			const id = itemId(entry.code || entry.text || "");
+			if (!list.some((item) => item.id === id)) {
+				list.unshift({ ...entry, id, at: Date.now() });
+				bucket[kind] = list;
+				library[session] = bucket;
+				writeLibrary(library);
+				try {
+					window.dispatchEvent(new CustomEvent("dsh-ch-library"));
+				} catch {
+					/* 忽略 */
+				}
+			}
+			return id;
+		};
+		const removeFromLibrary = (kind, id) => {
+			const library = readLibrary();
+			const session = currentSessionId();
+			const bucket = library[session];
+			if (!bucket || !Array.isArray(bucket[kind])) return;
+			bucket[kind] = bucket[kind].filter((item) => item.id !== id);
+			library[session] = bucket;
+			writeLibrary(library);
+			try {
+				window.dispatchEvent(new CustomEvent("dsh-ch-library"));
+			} catch {
+				/* 忽略 */
+			}
+		};
+
+		/** 轻提示（导入成功/失败）。 */
+		const toast = (text) => {
+			let node = document.getElementById("dsh-ch-toast");
+			if (!node) {
+				node = document.createElement("div");
+				node.id = "dsh-ch-toast";
+				node.className = "dsh-ch-toast";
+				document.body.appendChild(node);
+			}
+			node.textContent = text;
+			node.dataset.on = "1";
+			clearTimeout(node.__timer);
+			node.__timer = setTimeout(() => {
+				node.dataset.on = "0";
+			}, 2200);
+		};
+
+		const IMPORT_CSS = `
+.dsh-ch-import{position:absolute;top:6px;right:6px;z-index:5;display:inline-flex;align-items:center;justify-content:center;
+width:24px;height:24px;border-radius:7px;border:.5px solid var(--dsw-alias-border-l2);
+background:var(--dsw-alias-settings-card-fill,rgba(255,255,255,.9));color:var(--dsw-alias-label-secondary);
+cursor:pointer;opacity:0;transition:opacity .12s ease;padding:0}
+pre:hover>.dsh-ch-import,.dsh-ch-import:focus{opacity:1}
+.dsh-ch-import:hover{color:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary)}
+.dsh-ch-import[data-done="1"]{opacity:1;color:var(--dsw-alias-state-success-primary);border-color:var(--dsw-alias-state-success-primary)}
+.dsh-ch-toast{position:fixed;left:50%;bottom:56px;transform:translate(-50%,12px);z-index:2147482;
+padding:8px 14px;border-radius:10px;font-size:13px;background:rgba(17,17,17,.92);color:#fff;
+opacity:0;transition:opacity .18s ease,transform .18s ease;pointer-events:none}
+.dsh-ch-toast[data-on="1"]{opacity:1;transform:translate(-50%,0)}
+`;
+		//#endregion
+		//#region 聊天里的「导入仓库」按钮（代码框右上角一个小图标）
+		/** 导入图标：托盘 + 向下箭头（直观表示"收进仓库"）。 */
+		function importIcon() {
+			const ns = "http://www.w3.org/2000/svg";
+			const svg = document.createElementNS(ns, "svg");
+			svg.setAttribute("width", "14");
+			svg.setAttribute("height", "14");
+			svg.setAttribute("viewBox", "0 0 16 16");
+			svg.setAttribute("fill", "none");
+			svg.setAttribute("aria-hidden", "true");
+			const path = document.createElementNS(ns, "path");
+			path.setAttribute("d", "M8 2v7m0 0L5.2 6.3M8 9l2.8-2.7M2.6 11.2v1.6c0 .7.6 1.2 1.3 1.2h8.2c.7 0 1.3-.5 1.3-1.2v-1.6");
+			path.setAttribute("stroke", "currentColor");
+			path.setAttribute("stroke-width", "1.3");
+			path.setAttribute("stroke-linecap", "round");
+			path.setAttribute("stroke-linejoin", "round");
+			svg.appendChild(path);
+			return svg;
+		}
+
+		/** 导入时用的文件名：优先 AI/本地标题，退化成语言默认名。 */
+		function suggestName(title, lang, code) {
+			const ext = { python: "py", javascript: "js", typescript: "ts", r: "R", sql: "sql", bash: "sh", pwsh: "ps1", json: "json", yaml: "yaml" }[lang] || "txt";
+			const base = String(title || "").replace(/[\\/:*?"<>|\s]+/g, "_").slice(0, 24) || "导入代码";
+			// 代码里已经有明确文件名的（比如注释第一行写了 xxx.py）就用它
+			const hint = String(code || "").match(/^[#/]{1,2}\s*([\w.-]+\.(?:py|js|mjs|ts|r|sql|sh|ps1|ipynb))\s*$/m);
+			return hint ? hint[1] : `${base}.${ext}`;
+		}
+
+		/** 把聊天里的一个代码框导入仓库（顺带让 AI 起个中文名）。 */
+		async function importCodeBlock(pre, button) {
+			const codeEl = pre.querySelector("code");
+			const code = String((codeEl ? codeEl.textContent : pre.textContent) || "").replace(/\s+$/, "");
+			const langClass = codeEl ? String(codeEl.className || "") : "";
+			const lang = normLang((langClass.match(/language-([\w+#.-]+)/) || [])[1] || "");
+			let title = "";
+			try {
+				const api = window.dshDesktop;
+				if (api && typeof api.judgeCode === "function") {
+					const id = itemId(code);
+					const result = await api.judgeCode([{ id, lang, name: suggestName("", lang, code), code }]);
+					title = (result && result.results && result.results[id] && result.results[id].feature) || "";
+				}
+			} catch {
+				/* 命名失败就用本地标题 */
+			}
+			const finalTitle = title || guessTitle(code) || "导入的代码";
+			addToLibrary("code", {
+				title: finalTitle,
+				name: suggestName(finalTitle, lang, code),
+				lang,
+				code,
+				time: Date.now(),
+				source: "消息导入",
+			});
+			button.dataset.done = "1";
+			button.title = "已导入：" + finalTitle + "（再点一次不会重复导入）";
+			toast("已导入仓库：" + finalTitle);
+		}
+
+		/** 盯住聊天区域，给每个代码框加上导入按钮。 */
+		function installImportButtons() {
+			if (!document.getElementById("dsh-ch-import-css")) {
+				const style = document.createElement("style");
+				style.id = "dsh-ch-import-css";
+				style.textContent = IMPORT_CSS;
+				document.head.appendChild(style);
+			}
+			const inject = () => {
+				for (const pre of document.querySelectorAll("pre")) {
+					if (pre.closest(".ch-root")) continue; // 本模块自己的卡片不加
+					if (pre.querySelector(":scope > .dsh-ch-import")) continue;
+					const codeEl = pre.querySelector("code");
+					const body = String((codeEl ? codeEl.textContent : pre.textContent) || "");
+					if (body.trim().length < 40) continue; // 太短的不给导入
+					if (getComputedStyle(pre).position === "static") pre.style.position = "relative";
+					const button = document.createElement("button");
+					button.type = "button";
+					button.className = "dsh-ch-import";
+					button.title = "导入到「代码和文本」仓库（AI 会顺手起个名字）";
+					button.setAttribute("aria-label", "导入仓库");
+					button.appendChild(importIcon());
+					button.addEventListener("click", (event) => {
+						event.preventDefault();
+						event.stopPropagation();
+						void importCodeBlock(pre, button);
+					});
+					pre.appendChild(button);
+				}
+			};
+			inject();
+			let timer = null;
+			new MutationObserver(() => {
+				if (timer !== null) return;
+				timer = setTimeout(() => {
+					timer = null;
+					inject();
+				}, 250);
+			}).observe(document.body, { childList: true, subtree: true });
+		}
+		//#endregion
 		const EXTRA_CSS = `
 .ch-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .ch-chip{border:.5px solid var(--dsw-alias-border-l3);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;border-radius:999px;padding:3px 10px;cursor:pointer}
@@ -799,6 +999,17 @@ box-shadow:0 8px 24px rgba(0,0,0,.18);padding:4px}
 border-radius:7px;cursor:pointer;color:var(--dsw-alias-label-secondary)}
 .ch-pop>button:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .ch-pop>button[data-on="1"]{color:var(--dsw-alias-state-business-primary);font-weight:600}
+.ch-type{position:relative;display:inline-flex}
+.ch-icon-lg{width:auto;gap:6px;padding:0 10px;height:28px;font-size:12.5px}
+.ch-icon-label{white-space:nowrap}
+.ch-pop-wide{min-width:190px;flex-direction:row;gap:10px;padding:8px}
+.ch-pop-group{display:flex;flex-direction:column;gap:2px;min-width:80px}
+.ch-pop-title{font-size:11px;color:var(--dsw-alias-label-tertiary);padding:2px 8px 4px}
+.ch-cand{display:flex;align-items:center;gap:8px;border:.5px dashed var(--dsw-alias-border-l2);
+border-radius:12px;padding:10px 12px;cursor:pointer;background:var(--dsw-alias-bg-layer-1)}
+.ch-cand:hover{border-color:var(--dsw-alias-state-business-primary)}
+.ch-cand-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ch-cand-meta{font-size:11.5px;color:var(--dsw-alias-label-tertiary);margin-left:auto}
 `;
 		/** 新版视图：按任务分组 / 平铺可切换，带语言标注与过滤。 */
 		function CodeView2(props) {
@@ -991,7 +1202,7 @@ border-radius:7px;cursor:pointer;color:var(--dsw-alias-label-secondary)}
 			".ch-versions{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px}",
 		].join("");
 		/** 单个模块：折叠是圆角小卡片，点击展开成整行代码。 */
-		function Tile({ item, groupName }) {
+		function Tile({ item, groupName, onRemove }) {
 			const [open, setOpen] = react.useState(false);
 			const [copied, setCopied] = react.useState(false);
 			const [editing, setEditing] = react.useState(false);
@@ -1055,6 +1266,16 @@ border-radius:7px;cursor:pointer;color:var(--dsw-alias-label-secondary)}
 						h("span", { title: "双击改标题", onDoubleClick: startEdit }, title),
 						h("button", { className: "ch-btn", onClick: startEdit, title: "改标题" }, "✎"),
 						item.isMain ? h("span", { className: "ch-main" }, "主文件") : null,
+						typeof onRemove === "function"
+							? h("button", {
+									className: "ch-btn",
+									title: "从仓库移除（只影响这个列表，不影响对话）",
+									onClick: (event) => {
+										event.stopPropagation();
+										onRemove();
+									},
+								}, "✕")
+							: null,
 						item.aiFeature
 							? h("span", {
 									className: "ch-tag" + (item.aiUsable === false ? " ch-tag-hi" : ""),
@@ -1201,7 +1422,7 @@ border-radius:7px;cursor:pointer;color:var(--dsw-alias-label-secondary)}
 		 * 文本成品卡片：标题 + 来源 + 版本 + 字数；超长默认只显示开头，展开看全文、可整段复制。
 		 * 同一段反复修改过的，这里已经是最后一版（历史版本只在计数里体现，不铺开）。
 		 */
-		function TextCard({ item, open, copied, onToggle, onCopy }) {
+		function TextCard({ item, open, copied, onToggle, onCopy, onRemove }) {
 			const preview = String(item.text || "");
 			const clipped = preview.length > 420;
 			const body = open || !clipped ? preview : preview.slice(0, 420) + "\n…";
@@ -1220,6 +1441,16 @@ border-radius:7px;cursor:pointer;color:var(--dsw-alias-label-secondary)}
 						},
 					}, copied ? "已复制" : "复制"),
 					clipped ? h("span", { className: "ch-text-hint" }, open ? "收起" : "展开") : null,
+					typeof onRemove === "function"
+						? h("button", {
+								className: "ch-btn",
+								title: "从仓库移除（只影响这个列表，不影响对话）",
+								onClick: (event) => {
+									event.stopPropagation();
+									onRemove();
+								},
+							}, "✕")
+						: null,
 				),
 				h("pre", { className: "ch-text-body" }, body),
 			);
@@ -1257,8 +1488,28 @@ border-radius:7px;cursor:pointer;color:var(--dsw-alias-label-secondary)}
 			// 代码类型筛选（Python 优先/高亮）+ 展示方式气泡
 			const [langFilter, setLangFilter] = react.useState("all");
 			const [viewMenuOpen, setViewMenuOpen] = react.useState(false);
+			// 类型气泡：代码类型 / 文本类型 两组
+			const [typeMenuOpen, setTypeMenuOpen] = react.useState(false);
 			// 文本模块的子筛选：全部 / 回答 / 文件
 			const [textSource, setTextSource] = react.useState("all");
+			// 我的仓库（导入进来的代码/文本）
+			const [library, setLibrary] = react.useState(() => {
+				const all = readLibrary();
+				return all[currentSessionId()] || { code: [], text: [] };
+			});
+			react.useEffect(() => {
+				const refresh = () => {
+					const all = readLibrary();
+					setLibrary(all[currentSessionId()] || { code: [], text: [] });
+				};
+				window.addEventListener("dsh-ch-library", refresh);
+				window.addEventListener("focus", refresh);
+				refresh();
+				return () => {
+					window.removeEventListener("dsh-ch-library", refresh);
+					window.removeEventListener("focus", refresh);
+				};
+			}, []);
 			// AI 判定：让模型判断"这段代码能不能独立完成一个功能"，结果按指纹缓存（主进程里缓存，重复看不再花钱）
 			const [aiVerdicts, setAiVerdicts] = react.useState({});
 			const [aiState, setAiState] = react.useState("idle"); // idle | running | off | fail
@@ -1703,7 +1954,395 @@ border-radius:7px;cursor:pointer;color:var(--dsw-alias-label-secondary)}
 							)),
 			);
 		}
+		//#region 「代码和文本」主视图：只显示你自己导入的代码/文本
+		/** 文本/文件的类型标签：Word 排第一。 */
+		function textKindOf(item) {
+			const p = String((item && (item.path || item.name)) || "").toLowerCase();
+			if (/\.(docx?|dotx?|rtf)$/.test(p)) return "Word";
+			if (/\.(md|markdown)$/.test(p)) return "Markdown";
+			if (/\.(txt|text)$/.test(p)) return "TXT";
+			if (/\.(csv|tsv|xlsx?)$/.test(p)) return "表格";
+			if (/\.(tex|latex)$/.test(p)) return "LaTeX";
+			if (/\.pdf$/.test(p)) return "PDF";
+			return "其它";
+		}
+		const sortTypes = (list, first) =>
+			[...list].sort((a, b) => (a === first ? -1 : b === first ? 1 : a.localeCompare(b)));
+
+		/**
+		 * 主视图：聊天的代码框点「导入」后进这里；只显示导入过的，不再自动归纳。
+		 * 层级：代码 / 文本（平级）→ 类型（气泡里分「代码类型」「文本类型」两组）。
+		 */
+		function LibraryView(props) {
+			const [module, setModule] = react.useState("code");
+			const [layout, setLayout] = react.useState("type");
+			const [typeMenuOpen, setTypeMenuOpen] = react.useState(false);
+			const [viewMenuOpen, setViewMenuOpen] = react.useState(false);
+			const [codeType, setCodeType] = react.useState("all");
+			const [textType, setTextType] = react.useState("all");
+			const [query, setQuery] = react.useState("");
+			const [openItem, setOpenItem] = react.useState("");
+			const [copied, setCopied] = react.useState("");
+			const trajRef = react.useRef(null);
+			const chatRef = react.useRef(null);
+			const trajKey = props.useTrajectory
+				? props.useTrajectory((snapshot) => {
+						trajRef.current = snapshot;
+						return snapshot && snapshot.eventNodes ? snapshot.eventNodes.length : 0;
+					})
+				: 0;
+			const chatKey = props.useChat
+				? props.useChat((snapshot) => {
+						chatRef.current = snapshot;
+						return snapshot && snapshot.order ? snapshot.order.length : 0;
+					})
+				: 0;
+			const [data, setData] = react.useState({ texts: [] });
+			const [busy, setBusy] = react.useState(true);
+			const [library, setLibrary] = react.useState(() => {
+				const all = readLibrary();
+				return all[currentSessionId()] || { code: [], text: [] };
+			});
+			useHideComposer();
+			react.useEffect(() => {
+				const refresh = () => {
+					const all = readLibrary();
+					setLibrary(all[currentSessionId()] || { code: [], text: [] });
+				};
+				window.addEventListener("dsh-ch-library", refresh);
+				window.addEventListener("focus", refresh);
+				refresh();
+				return () => {
+					window.removeEventListener("dsh-ch-library", refresh);
+					window.removeEventListener("focus", refresh);
+				};
+			}, []);
+			react.useEffect(() => {
+				setBusy(true);
+				const timer = setTimeout(() => {
+					// 只为了拿到"本会话检测到的文本/文件"，好让它们也能一键导入
+					setData(extract(trajRef.current, [chatRef.current]));
+					setBusy(false);
+				}, 500);
+				return () => clearTimeout(timer);
+			}, [trajKey, chatKey]);
+			react.useEffect(() => {
+				if (!typeMenuOpen && !viewMenuOpen) return;
+				const onDown = (event) => {
+					const target = event.target;
+					if (target && target.closest && (target.closest(".ch-type") || target.closest(".ch-view"))) return;
+					setTypeMenuOpen(false);
+					setViewMenuOpen(false);
+				};
+				document.addEventListener("pointerdown", onDown, true);
+				return () => document.removeEventListener("pointerdown", onDown, true);
+			}, [typeMenuOpen, viewMenuOpen]);
+
+			const copyPlain = (text, label) => {
+				try {
+					navigator.clipboard.writeText(String(text || ""));
+					setCopied(label);
+					setTimeout(() => setCopied(""), 1200);
+				} catch {
+					/* 剪贴板不可用 */
+				}
+			};
+			const match = (item) => {
+				if (!query.trim()) return true;
+				const hay = [item.title, item.name, item.path, item.lang, item.code, item.text].filter(Boolean).join(" ").toLowerCase();
+				return hay.includes(query.trim().toLowerCase());
+			};
+			const codeAll = library.code || [];
+			const textAll = library.text || [];
+			const codeTypes = sortTypes(new Set(codeAll.map((item) => String(item.lang || "其它"))), "python");
+			// 候选：本会话检测到的文本/文件（还没导入的），也参与类型列表
+			const candidates = (data.texts || []).filter((item) => item.text && !textAll.some((own) => own.id === itemId(item.text)));
+			const textTypes = sortTypes(new Set([...textAll.map(textKindOf), ...candidates.map(textKindOf)]), "Word");
+			const codeList = codeAll.filter((item) => (codeType === "all" || String(item.lang || "其它") === codeType) && match(item));
+			const textList = textAll.filter((item) => (textType === "all" || textKindOf(item) === textType) && match(item));
+			const candidateList = candidates.filter((item) => textType === "all" || textKindOf(item) === textType);
+			const count = module === "code" ? codeList.length : textList.length + candidateList.length;
+			const groupsOf = (list, keyOf) => {
+				if (layout === "flat") return [{ key: "", title: "", items: list }];
+				const map = new Map();
+				for (const item of list) {
+					const key = keyOf(item);
+					if (!map.has(key)) map.set(key, []);
+					map.get(key).push(item);
+				}
+				const first = module === "code" ? "python" : "Word";
+				return [...map.entries()]
+					.sort((a, b) => (a[0] === first ? -1 : b[0] === first ? 1 : a[0].localeCompare(b[0])))
+					.map(([key, items]) => ({ key, title: key, items }));
+			};
+			const importText = (item) => {
+				const title = item.title || textTitleOf(item.text || "");
+				addToLibrary("text", {
+					title,
+					name: item.name || title,
+					path: item.path || "",
+					text: item.text || "",
+					time: Date.now(),
+					source: item.source === "文件" ? "文件导入" : "回答导入",
+				});
+				toast("已导入文本：" + title);
+			};
+			const exportLibrary = () => {
+				const blocks = [module === "code" ? "# 我的代码仓库" : "# 我的文本仓库", ""];
+				for (const item of module === "code" ? codeList : textList) {
+					blocks.push(`## ${item.title || item.name}`, "");
+					blocks.push(module === "code" ? "```" + (item.lang === "text" ? "" : item.lang) : "");
+					blocks.push(module === "code" ? item.code : item.text, module === "code" ? "```" : "", "");
+				}
+				const text = blocks.join("\n");
+				try {
+					const url = URL.createObjectURL(new Blob([text], { type: "text/markdown" }));
+					const a = document.createElement("a");
+					a.href = url;
+					a.download = module === "code" ? "我的代码仓库.md" : "我的文本仓库.md";
+					a.click();
+					setTimeout(() => URL.revokeObjectURL(url), 4000);
+				} catch {
+					copyPlain(text, "export");
+				}
+			};
+			const typeLabel = module === "code"
+				? codeType === "all" ? "全部类型" : codeType
+				: textType === "all" ? "全部类型" : textType;
+
+			return h("div", { className: "ch-root" },
+				h("style", null, CSS),
+				h("style", null, GRID_CSS),
+				h("div", { className: "ch-head" },
+					h("div", { className: "ch-seg ch-seg-lg" },
+						h("button", { "data-on": module === "code" ? "1" : "0", onClick: () => setModule("code") }, "代码"),
+						h("button", { "data-on": module === "text" ? "1" : "0", onClick: () => setModule("text") }, "文本"),
+					),
+					/* 类型：一个按钮 + 气泡，里面分「代码类型」「文本类型」两组 */
+					h("div", { className: "ch-type" },
+						h("button", {
+							className: "ch-icon ch-icon-lg",
+							"data-on": typeMenuOpen ? "1" : "0",
+							title: "筛选类型",
+							onClick: (event) => {
+								event.stopPropagation();
+								setTypeMenuOpen(!typeMenuOpen);
+								setViewMenuOpen(false);
+							},
+						}, filterIcon(), h("span", { className: "ch-icon-label" }, typeLabel), chevronIcon()),
+						typeMenuOpen
+							? h("div", { className: "ch-pop ch-pop-wide" },
+								h("div", { className: "ch-pop-group" },
+									h("div", { className: "ch-pop-title" }, "代码类型"),
+									h("button", {
+										"data-on": module === "code" && codeType === "all" ? "1" : "0",
+										onClick: () => { setModule("code"); setCodeType("all"); setTypeMenuOpen(false); },
+									}, "全部"),
+									...codeTypes.map((name) => h("button", {
+										key: name,
+										"data-on": module === "code" && codeType === name ? "1" : "0",
+										onClick: () => { setModule("code"); setCodeType(name); setTypeMenuOpen(false); },
+									}, name === "python" ? "Python ★" : name)),
+								),
+								h("div", { className: "ch-pop-group" },
+									h("div", { className: "ch-pop-title" }, "文本类型"),
+									h("button", {
+										"data-on": module === "text" && textType === "all" ? "1" : "0",
+										onClick: () => { setModule("text"); setTextType("all"); setTypeMenuOpen(false); },
+									}, "全部"),
+									...textTypes.map((name) => h("button", {
+										key: name,
+										"data-on": module === "text" && textType === name ? "1" : "0",
+										onClick: () => { setModule("text"); setTextType(name); setTypeMenuOpen(false); },
+									}, name === "Word" ? "Word ★" : name)),
+								),
+							)
+							: null,
+					),
+					busy ? h("span", { className: "ch-busy" }, "解析中…") : null,
+					count > 0
+						? h("button", { className: "ch-icon", title: "导出当前列表（Markdown）", onClick: exportLibrary }, downloadIcon())
+						: null,
+					h("div", { className: "ch-right" },
+						h("span", { className: "ch-count" }, count + (module === "code" ? " 段代码" : " 份文本")),
+						h("input", {
+							className: "ch-input",
+							placeholder: "搜索标题 / 文件名 / 内容",
+							value: query,
+							onChange: (event) => setQuery(event.target.value),
+							style: { minWidth: "150px" },
+						}),
+						h("div", { className: "ch-view" },
+							h("button", {
+								className: "ch-icon",
+								"data-on": viewMenuOpen ? "1" : "0",
+								title: layout === "type" ? "按类型分组（可切平铺）" : "平铺（可切按类型）",
+								onClick: (event) => {
+									event.stopPropagation();
+									setViewMenuOpen(!viewMenuOpen);
+									setTypeMenuOpen(false);
+								},
+							}, layout === "type" ? gridIcon() : rowsIcon()),
+							viewMenuOpen
+								? h("div", { className: "ch-pop" },
+									h("button", {
+										"data-on": layout === "type" ? "1" : "0",
+										onClick: () => { setLayout("type"); setViewMenuOpen(false); },
+									}, "按类型"),
+									h("button", {
+										"data-on": layout === "flat" ? "1" : "0",
+										onClick: () => { setLayout("flat"); setViewMenuOpen(false); },
+									}, "平铺"),
+								)
+								: null,
+						),
+					),
+				),
+				module === "code"
+					? codeList.length === 0
+						? h("div", { className: "ch-empty" }, "还没有导入代码",
+							h("div", { className: "ch-sub" }, "在聊天里，鼠标移到 AI 给出的代码框右上角 → 点导入图标；导入时 AI 会顺手给它起个名字"))
+						: h("div", { className: "ch-list" }, groupsOf(codeList, (item) => String(item.lang || "其它")).map((group) =>
+							group.title
+								? h("section", { key: group.title, className: "ch-group" },
+									h("header", { className: "ch-group-head" },
+										h("span", { className: "ch-group-title" }, group.title === "python" ? "Python" : group.title),
+										h("span", null, group.items.length + " 段"),
+									),
+									h("div", { className: "ch-grid" }, group.items.map((item) => h(Tile, {
+										key: item.id,
+										item: { ...item, complete: true },
+										groupName: "我的仓库",
+										onRemove: () => {
+											removeFromLibrary("code", item.id);
+											toast("已从仓库移除");
+										},
+									}))),
+								)
+								: h("div", { key: "flat", className: "ch-grid" }, group.items.map((item) => h(Tile, {
+									key: item.id,
+									item: { ...item, complete: true },
+									groupName: "我的仓库",
+									onRemove: () => {
+										removeFromLibrary("code", item.id);
+										toast("已从仓库移除");
+									},
+								}))),
+						))
+					: (textList.length === 0 && candidateList.length === 0)
+						? h("div", { className: "ch-empty" }, "还没有导入文本",
+							h("div", { className: "ch-sub" }, "在聊天里点代码框旁的导入图标；下面也会列出本会话生成的文件/文本，可直接一键导入"))
+						: h("div", { className: "ch-list" },
+							candidateList.length
+								? h("section", { className: "ch-group" },
+									h("header", { className: "ch-group-head" },
+										h("span", { className: "ch-group-title" }, "本会话生成的文件 / 文本"),
+										h("span", null, candidateList.length + " 项待导入"),
+									),
+									h("div", { className: "ch-grid" }, candidateList.map((item) => h("article", {
+											key: "candidate" + item.id,
+											className: "ch-cand",
+											onClick: () => importText(item),
+											title: "点一下导入仓库",
+										},
+										h("span", { className: "ch-cand-title" }, item.title || item.name || "文本"),
+										h("span", { className: "ch-tag" }, textKindOf(item)),
+										h("span", { className: "ch-cand-meta" }, (item.chars || 0) + " 字"),
+										item.versions > 1 ? h("span", { className: "ch-tag ch-tag-hi" }, "共 " + item.versions + " 版") : null,
+									))),
+								)
+								: null,
+							textList.length
+								? h("section", { className: "ch-group" },
+									h("header", { className: "ch-group-head" },
+										h("span", { className: "ch-group-title" }, "我的文本仓库"),
+										h("span", null, textList.length + " 份"),
+									),
+									h("div", { className: "ch-grid" }, textList.map((item) => h(TextCard, {
+										key: item.id,
+										item: { ...item, kind: textKindOf(item) },
+										open: openItem === item.id,
+										copied: copied === item.id,
+										onToggle: () => setOpenItem(openItem === item.id ? "" : item.id),
+										onCopy: () => copyPlain((item.title ? item.title + "\n\n" : "") + (item.text || ""), item.id),
+										onRemove: () => {
+											removeFromLibrary("text", item.id);
+											toast("已从仓库移除");
+										},
+									}))),
+								)
+								: null,
+						),
+			);
+		}
+		/* 图标：统一 16px 线性风，跟"代码/文本"按钮同一套观感 */
+		function filterIcon() {
+			const ns = "http://www.w3.org/2000/svg";
+			const svg = document.createElementNS(ns, "svg");
+			svg.setAttribute("width", "14"); svg.setAttribute("height", "14");
+			svg.setAttribute("viewBox", "0 0 16 16"); svg.setAttribute("fill", "none");
+			const p = document.createElementNS(ns, "path");
+			p.setAttribute("d", "M2 4h12M4.5 8h7M6.5 12h3");
+			p.setAttribute("stroke", "currentColor"); p.setAttribute("stroke-width", "1.3"); p.setAttribute("stroke-linecap", "round");
+			svg.appendChild(p);
+			return svg;
+		}
+		function chevronIcon() {
+			const ns = "http://www.w3.org/2000/svg";
+			const svg = document.createElementNS(ns, "svg");
+			svg.setAttribute("width", "12"); svg.setAttribute("height", "12");
+			svg.setAttribute("viewBox", "0 0 16 16"); svg.setAttribute("fill", "none");
+			const p = document.createElementNS(ns, "path");
+			p.setAttribute("d", "M4.5 6.5L8 10l3.5-3.5");
+			p.setAttribute("stroke", "currentColor"); p.setAttribute("stroke-width", "1.3");
+			p.setAttribute("stroke-linecap", "round"); p.setAttribute("stroke-linejoin", "round");
+			svg.appendChild(p);
+			return svg;
+		}
+		function downloadIcon() {
+			const ns = "http://www.w3.org/2000/svg";
+			const svg = document.createElementNS(ns, "svg");
+			svg.setAttribute("width", "16"); svg.setAttribute("height", "16");
+			svg.setAttribute("viewBox", "0 0 16 16"); svg.setAttribute("fill", "none");
+			const p = document.createElementNS(ns, "path");
+			p.setAttribute("d", "M8 2.6v7.2m0 0L5.3 7.1M8 9.8l2.7-2.7M2.8 12.4h10.4");
+			p.setAttribute("stroke", "currentColor"); p.setAttribute("stroke-width", "1.3");
+			p.setAttribute("stroke-linecap", "round"); p.setAttribute("stroke-linejoin", "round");
+			svg.appendChild(p);
+			return svg;
+		}
+		function gridIcon() {
+			const ns = "http://www.w3.org/2000/svg";
+			const svg = document.createElementNS(ns, "svg");
+			svg.setAttribute("width", "16"); svg.setAttribute("height", "16");
+			svg.setAttribute("viewBox", "0 0 16 16"); svg.setAttribute("fill", "none");
+			for (const [x, y] of [[2.5, 2.5], [9, 2.5], [2.5, 9], [9, 9]]) {
+				const r = document.createElementNS(ns, "rect");
+				r.setAttribute("x", String(x)); r.setAttribute("y", String(y));
+				r.setAttribute("width", "4.5"); r.setAttribute("height", "4.5"); r.setAttribute("rx", "1.2");
+				r.setAttribute("stroke", "currentColor"); r.setAttribute("stroke-width", "1.2");
+				svg.appendChild(r);
+			}
+			return svg;
+		}
+		function rowsIcon() {
+			const ns = "http://www.w3.org/2000/svg";
+			const svg = document.createElementNS(ns, "svg");
+			svg.setAttribute("width", "16"); svg.setAttribute("height", "16");
+			svg.setAttribute("viewBox", "0 0 16 16"); svg.setAttribute("fill", "none");
+			for (const y of [3, 6.5, 10]) {
+				const r = document.createElementNS(ns, "rect");
+				r.setAttribute("x", "2.5"); r.setAttribute("y", String(y));
+				r.setAttribute("width", "11"); r.setAttribute("height", "2.6"); r.setAttribute("rx", "1");
+				r.setAttribute("stroke", "currentColor"); r.setAttribute("stroke-width", "1.2");
+				svg.appendChild(r);
+			}
+			return svg;
+		}
+		//#endregion
+
 		function apply(ctx) {
+			installImportButtons();
 			// 取证/自测入口：把意图判定暴露出来，方便外部探针用真实句子验证规则
 			try {
 				window.__CH_INTENT__ = { classifyIntent, INTENT_RULES, extract };
@@ -1713,7 +2352,7 @@ border-radius:7px;cursor:pointer;color:var(--dsw-alias-label-secondary)}
 			ctx.slots.inject("conversation.view", () =>
 				ctx.slots.register(
 					{ name: "conversation.view", id: "code", order: 30, label: "代码和文本" },
-					(props) => h(CodeView3, { ...props, ctx }),
+					(props) => h(LibraryView, { ...props, ctx }),
 				),
 			);
 		}
